@@ -1,0 +1,128 @@
+version: "3.9"
+
+services:
+
+#  keycloak:
+#    ports:
+#      - '8080:8080'
+#    build:
+#      context: .
+#      dockerfile: ./docker/keycloak/Dockerfile
+#    container_name: keycloak
+#    env_file:
+#      - ./.envs/.local
+#    networks:
+#      - report
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./docker/postgres/Dockerfile
+    container_name: postgres
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+      - local_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.local
+    networks:
+      - report
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: redis
+    networks:
+      - report
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    command: /start-celeryworker
+    container_name: celery_worker
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+    env_file:
+      - ./.envs/.local
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - report
+
+  flower:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    command: /start-flower
+    container_name: celery_flower
+    volumes:
+      - .:/app
+    env_file:
+      - ./.envs/.local
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - report
+
+  beat:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    command: /start-beat
+    container_name: celery_beat
+    volumes:
+      - .:/app
+    env_file:
+      - ./.envs/.local
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - report
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: /start
+    container_name: api
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+    ports:
+      - "5006:5006"
+    env_file:
+      - ./.envs/.local
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - report
+
+  nginx:
+    restart: always
+    container_name: nginx
+    depends_on:
+      - api
+    volumes:
+      - static_volume:/app/static
+    build:
+      context: docker/nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    networks:
+      - report
+
+networks:
+  report:
+    driver: bridge
+
+volumes:
+  local_postgres_data: {}
+  local_postgres_data_backups: {}
+  static_volume:

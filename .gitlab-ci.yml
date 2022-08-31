@@ -1,0 +1,25 @@
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  when: on_success
+  tags:
+    - aris
+  only: 
+    - release
+  script:
+    - docker build --network=host -t $CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA .
+
+deploy:
+  stage: deploy
+  only: 
+    - release
+  tags:
+    - aris
+  needs: ['build']
+  script:
+    - docker rm -f $CI_PROJECT_NAME || true
+    - docker run -d -e TZ=Europe/Moscow --restart unless-stopped -v /opt/app/app.backend/.envs/.prod:/app/.envs/.prod -v /opt/app/app.backend/log:/app/log --name $CI_PROJECT_NAME -p1234:8000 -p12345:1234 $CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA
+
