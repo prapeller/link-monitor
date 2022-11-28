@@ -2,32 +2,104 @@ import re
 
 import fastapi as fa
 import sqlalchemy as sa
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from core.dependencies import get_db_dependency, get_current_user_dependency
+from celery_tasks import recreate_domains_task
+from core.dependencies import (
+    get_session_dependency,
+    period_params_dependency,
+    get_current_user_dependency,
+    pudomain_params_dependency,
+    pagination_params_dependency
+)
+from core.enums import PUDomainOrderByEnum, OrderEnum
+from core.exceptions import UnauthorizedException
+from core.shared import (
+    filter_query_by_period_params_pudomain_link,
+    filter_query_by_model_params_pudomain,
+    paginate_query
+)
 from database.crud import get, remove
 from database.models.link import LinkModel
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.page_url_domain import PageUrlDomainModel
+from database.models.tag import TagModel
 from database.models.user import UserModel
-from database.schemas.page_url_domain import PageUrlDomainReadSerializer, BaseCheckResponseModel
-from core.shared import get_domain_name_from_url
+from database.repository import SqlAlchemyRepository
+from database.schemas.page_url_domain import (
+    PageUrlDomainReadSerializer,
+    BaseCheckResponseModel,
+    PUDomainReadLastLinkManyTotalCountResponseModel,
+    PUDomainReadLastLinkSerializer, PageUrlDomainUpdateSerializer
+)
+from services.domain_checker import PageUrlDomainChecker, get_domain_name_from_url, check_pudomains_with_similarweb
 
 router = fa.APIRouter()
 
 
-@router.get("/", response_model=list[PageUrlDomainReadSerializer])
+@router.get("/",
+            response_model=list[PageUrlDomainReadSerializer]
+            )
 def page_url_domains_list(
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
-    link_url_domains = db.query(PageUrlDomainModel).all()
-    return link_url_domains
+    repo = SqlAlchemyRepository(session)
+    page_url_domains = repo.get_all(PageUrlDomainModel)
+    return page_url_domains
 
 
-@router.post("/base-check", response_model=BaseCheckResponseModel)
+@router.get("/donor-domains",
+            response_model=PUDomainReadLastLinkManyTotalCountResponseModel
+            )
+def page_url_domains_list(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+        session: Session = fa.Depends(get_session_dependency),
+        pudomain_order_by: PUDomainOrderByEnum = PUDomainOrderByEnum.link_created_at_last,
+        pudomain_order: OrderEnum = OrderEnum.desc,
+        period_params: dict = fa.Depends(period_params_dependency),
+        pudomain_params: dict = fa.Depends(pudomain_params_dependency),
+        pagination_params: dict = fa.Depends(pagination_params_dependency),
+):
+    if not current_user.is_head:
+        raise UnauthorizedException
+
+    pudomains_query = session.query(PageUrlDomainModel)
+    total_domains_count = pudomains_query.count()
+    pudomains_query = filter_query_by_period_params_pudomain_link(pudomains_query, period_params)
+    pudomains_query = filter_query_by_model_params_pudomain(pudomains_query, pudomain_params)
+    filtered_domains_count = pudomains_query.count()
+    pudomains_query = paginate_query(PageUrlDomainModel, pudomains_query, pudomain_order_by, pudomain_order,
+                                     pagination_params)
+    pudomains = pudomains_query.all()
+    pud_ser_out_list = [PUDomainReadLastLinkSerializer.from_orm(pud) for pud in pudomains]
+    pud_ser_out_list_json = jsonable_encoder(pud_ser_out_list)
+
+    return JSONResponse({'domains_read_last_links': pud_ser_out_list_json,
+                         'total_domains_count': total_domains_count,
+                         'filtered_domains_count': filtered_domains_count})
+
+
+@router.get("/{pud_id}",
+            response_model=PUDomainReadLastLinkSerializer
+            )
+def page_url_domains_read(
+        pud_id: int = fa.Path(...),
+        session: Session = fa.Depends(get_session_dependency),
+):
+    repo = SqlAlchemyRepository(session)
+    page_url_domain = repo.get(PageUrlDomainModel, id=pud_id)
+    if page_url_domain is None:
+        raise fa.HTTPException(status_code=404, detail="PageUrlDomain not found")
+    return page_url_domain
+
+
+@router.post("/base-check",
+             response_model=BaseCheckResponseModel
+             )
 def page_url_domains_base_check(
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         is_base: bool = True,
         check_str=fa.Body(...),
 ):
@@ -39,7 +111,7 @@ def page_url_domains_base_check(
     check_links: list[str] = re.split(r"[,\n ]", check_str)
     check_domains = [get_domain_name_from_url(link) for link in check_links if link]
 
-    page_url_domains_tuples: list[tuple] = db.execute(
+    page_url_domains_tuples: list[tuple] = session.execute(
         sa.select(PageUrlDomainModel.name, LinkUrlDomainModel.name, LinkUrlDomainModel.is_base)
         .select_from(
             sa.join(LinkModel, LinkUrlDomainModel).join(PageUrlDomainModel)
@@ -60,18 +132,73 @@ def page_url_domains_base_check(
     return JSONResponse({'present': present, 'not_present': not_present})
 
 
-@router.delete("/{page_url_domain_id}")
+@router.post(
+    "/check-with-similarweb",
+)
+async def page_url_domains_check_with_similarweb(
+        pudomain_id_list: list[int] = fa.Body(...),
+        sync_mode: bool = fa.Query(default=False),
+):
+    if sync_mode:
+        pudomain_checker = PageUrlDomainChecker(pudomain_id_list)
+        await pudomain_checker.check_pudomains_country_and_language_tags()
+        return {'message': 'ok'}
+    else:
+        task = check_pudomains_with_similarweb.delay(id_list=pudomain_id_list)
+        return JSONResponse(content={"task_id": task.task_id})
+
+
+@router.put(
+    "/recreate-domains",
+)
+async def recreate_domains(
+        # session: Session = fa.Depends(get_session_dependency),
+):
+    """
+    recreates for all links:
+    -link_url_domain
+    -page_url_domain (along with updating /.link_da_last /.link_dr_last /.link_created_at_last /.link_price_avg)
+    """
+    task = recreate_domains_task.delay()
+    return {"task_id": task.task_id}
+
+
+@router.put("/{pud_id}",
+            response_model=PUDomainReadLastLinkSerializer
+            )
+async def page_url_domains_update(
+        pud_ser: PageUrlDomainUpdateSerializer,
+        pud_id: int = fa.Path(...),
+        session: Session = fa.Depends(get_session_dependency),
+):
+    """
+    update page_url_domain by id
+    """
+    repo = SqlAlchemyRepository(session)
+    page_url_domain = repo.get(PageUrlDomainModel, id=pud_id)
+    if page_url_domain is None:
+        raise fa.HTTPException(status_code=404, detail="PageUrlDomain not found")
+    tags_id = pud_ser.tags_id
+    tags = repo.get_many(TagModel, tags_id)
+    repo.update(page_url_domain, pud_ser)
+    page_url_domain.tags = tags
+    session.commit()
+
+    return page_url_domain
+
+
+@router.delete("/{pud_id}")
 async def page_url_domains_delete(
-        page_url_domain_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        pud_id: int,
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can delete link_url_domain')
-    page_url_domain = get(db, PageUrlDomainModel, id=page_url_domain_id)
+        raise UnauthorizedException
+
+    page_url_domain = get(session, PageUrlDomainModel, id=pud_id)
     if page_url_domain is None:
         raise fa.HTTPException(status_code=404, detail="link_url_domain not found")
 
-    remove(db, PageUrlDomainModel, page_url_domain_id)
+    remove(session, PageUrlDomainModel, pud_id)
     return {'message': 'ok'}

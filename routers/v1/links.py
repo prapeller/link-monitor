@@ -1,119 +1,69 @@
+from typing import Union
+
 import fastapi as fa
-import sqlalchemy as sa
 from fastapi import UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
-from sqlalchemy import String
-from sqlalchemy import extract
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, Query
-from sqlalchemy.sql.expression import cast
+from sqlalchemy.orm import Session
 
-from celery_tasks import (check_link_by_id,
-                          check_links_from_list,
-                          check_links_all,
-                          create_links_from_uploaded_file_archive,
-                          check_links_per_year, check_links_from_list_playwright,
-                          set_link_check_last_ids)
-from core.dependencies import (get_db_dependency, get_current_user_dependency, link_params_dependency_v1,
-                               pagination_params_dependency)
-from core.enums import LinkOrderByEnum, OrderEnum
-from core.exceptions import NotExcelException, LinkAlreadyExistsFromFileException, LinkAlreadyExistsException
-from database import Base
+from celery_tasks import (
+    check_link_by_id,
+    check_links_from_list,
+    create_links_from_uploaded_file_archive,
+    check_links_per_year, check_links_from_list_playwright,
+    set_link_check_last_ids, check_links_all
+)
+from core.config import settings
+from core.dependencies import (
+    get_session_dependency,
+    get_current_user_dependency,
+    get_current_user_roles_dependency,
+    period_params_dependency,
+    link_params_dependency,
+    pagination_params_dependency
+)
+from core.enums import (
+    LinkOrderByEnum,
+    OrderEnum,
+    StartModeEnum
+)
+from core.exceptions import (
+    NotExcelException,
+    LinkAlreadyExistsFromFileException,
+    LinkAlreadyExistsException
+)
+from core.exceptions import UnauthorizedException
+from core.shared import (
+    filter_query_by_period_params_link,
+    filter_query_by_model_params_link,
+    paginate_query, chunks_generator
+)
 from database.crud import (get, create, update, remove, get_or_create_many)
 from database.models.link import LinkModel
 from database.models.user import UserModel
-from database.schemas.link import (LinkUpdateSerializer, LinkCreateSerializer,
-                                   LinkReadLinkcheckLastAndDomainsSerializer,
-                                   LinkReadLclDomainsUserSerializer, LinkReadManyTotalCountResponseModel,
-                                   LinkReadSingleTaskIdResponseModel, LinkReadMessageTaskIdResponseModel,
-                                   LinkReadManyTaskIdResponseModel, LinkReadTaskIdResponseModel,
-                                   LinkReadMessageResponseModel)
+from database.schemas.link import (
+    LinkUpdateSerializer,
+    LinkCreateSerializer,
+    LinkReadLinkcheckLastAndDomainsSerializer,
+    LinkReadLclDomainsUserSerializer,
+    LinkReadSingleTaskIdResponseModel,
+    LinkReadMessageTaskIdResponseModel,
+    LinkReadManyTaskIdResponseModel,
+    LinkReadTaskIdResponseModel,
+    LinkReadManyTotalCountResponseModel
+)
 from services.file_handler import iterfile, get_link_create_ser_list_from_file
-from core.shared import update_domains
+from services.link_checker import LinkChecker
 
 router = fa.APIRouter()
 
 
-def filter_query(Model, query: Query, filter_params: dict) -> Query:
-    for attr, value in filter_params.items():
-        if attr == 'user_id' and value is not None:
-            query = query.filter(getattr(Model, attr) == value)
-        elif value is not None:
-            query = query.filter(cast(getattr(Model, attr), String).like(f'%{filter_params[attr]}%'))
-    return query
-
-
-def paginate_query(Model: Base, query: Query, order_by: LinkOrderByEnum, order: OrderEnum, pagination_params) -> Query:
-    order = sa.desc if order.value == 'desc' else sa.asc
-    query = query.order_by(order(getattr(Model, order_by))).offset(pagination_params["offset"]).limit(
-        pagination_params["limit"])
-    return query
-
-
-@router.get("/my",
-            response_model=LinkReadManyTotalCountResponseModel
-            )
-def links_list_my(
-        current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
-        links_filter_params: dict = fa.Depends(link_params_dependency_v1),
-        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
-        links_order: OrderEnum = OrderEnum.desc,
-        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
-):
-    """
-    get links of current user
-    """
-
-    links_query = db.query(LinkModel) \
-        .filter_by(user=current_user) \
-        .filter(extract('year', LinkModel.created_at) == links_pagination_params['year'])
-
-    links_query = filter_query(LinkModel, links_query, links_filter_params)
-    total_links_count = links_query.count()
-    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
-    links = links_query.all()
-    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
-    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
-    return JSONResponse(content={"links": link_ser_out_list_json, "total_links_count": total_links_count})
-
-
-@router.get("/my-linkbuilders-links",
-            response_model=LinkReadManyTotalCountResponseModel
-            )
-def links_list_my_linkbuilders(
-        current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
-        links_filter_params: dict = fa.Depends(link_params_dependency_v1),
-        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
-        links_order: OrderEnum = OrderEnum.desc,
-        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
-):
-    """
-    get links of teamlead's linkbuilders
-    """
-    if not current_user.is_teamlead:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only teamlead user can view other users links')
-    users_id_to_view_list = [linkbuilder.id for linkbuilder in current_user.linkbuilders] + [
-        current_user.id]
-
-    links_query = db.query(LinkModel) \
-        .filter(LinkModel.user_id.in_(users_id_to_view_list)) \
-        .filter(extract('year', LinkModel.created_at) == links_pagination_params['year'])
-
-    links_query = filter_query(LinkModel, links_query, links_filter_params)
-    total_links_count = links_query.count()
-    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
-    links = links_query.all()
-    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
-    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
-    return JSONResponse(content={"links": link_ser_out_list_json, "total_links_count": total_links_count})
-
-
-@router.get("/get-link-upload-template")
+@router.get(
+    "/get-link-upload-template",
+    status_code=fa.status.HTTP_200_OK,
+)
 def get_link_upload_template():
     """
     get template file for creating links
@@ -122,12 +72,153 @@ def get_link_upload_template():
     return StreamingResponse(iterfile(filepath=filepath))
 
 
-@router.get("/{link_id}",
-            response_model=LinkReadLclDomainsUserSerializer
-            )
+@router.get(
+    "/my-seo",
+    response_model=LinkReadManyTotalCountResponseModel,
+    status_code=fa.status.HTTP_200_OK,
+)
+def links_list_my_seo(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+        current_user_roles: UserModel = fa.Depends(get_current_user_roles_dependency),
+        db: Session = fa.Depends(get_session_dependency),
+        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
+        links_order: OrderEnum = OrderEnum.desc,
+        period_params: dict = fa.Depends(period_params_dependency),
+        links_params: dict = fa.Depends(link_params_dependency),
+        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
+):
+    """
+    get links of projects that current seo user has access to
+    """
+    if not 'seo' in current_user_roles:
+        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
+                               detail='Only seo user can view seo links')
+    links_query = db.query(LinkModel) \
+        .filter(LinkModel.link_url_domain_id.in_(current_user.seo_link_url_domains_id))
+    total_links_count = links_query.count()
+    links_query = filter_query_by_period_params_link(links_query, period_params)
+    links_query = filter_query_by_model_params_link(links_query, links_params)
+    filtered_links_count = links_query.count()
+    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
+    links = links_query.all()
+    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
+    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
+    return JSONResponse(content={'links': link_ser_out_list_json,
+                                 'total_links_count': total_links_count,
+                                 'filtered_links_count': filtered_links_count})
+
+
+@router.get(
+    "/my",
+    response_model=LinkReadManyTotalCountResponseModel,
+    status_code=fa.status.HTTP_200_OK,
+)
+def links_list_my(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+        db: Session = fa.Depends(get_session_dependency),
+        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
+        links_order: OrderEnum = OrderEnum.desc,
+        period_params: dict = fa.Depends(period_params_dependency),
+        links_params: dict = fa.Depends(link_params_dependency),
+        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
+):
+    """
+    get links of current user
+    """
+
+    links_query = db.query(LinkModel).filter_by(user=current_user)
+    total_links_count = links_query.count()
+    links_query = filter_query_by_period_params_link(links_query, period_params)
+    links_query = filter_query_by_model_params_link(links_query, links_params)
+    filtered_links_count = links_query.count()
+    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
+    links = links_query.all()
+    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
+    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
+    return JSONResponse(content={'links': link_ser_out_list_json,
+                                 'total_links_count': total_links_count,
+                                 'filtered_links_count': filtered_links_count})
+
+
+@router.get(
+    "/my-and-my-linkbuilders",
+    response_model=LinkReadManyTotalCountResponseModel,
+    status_code=fa.status.HTTP_200_OK,
+)
+def links_list_my_and_my_linkbuilders(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+        db: Session = fa.Depends(get_session_dependency),
+        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
+        links_order: OrderEnum = OrderEnum.desc,
+        period_params: dict = fa.Depends(period_params_dependency),
+        links_params: dict = fa.Depends(link_params_dependency),
+        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
+):
+    """
+    get links of teamlead and his linkbuilders
+    """
+    if not current_user.is_teamlead:
+        raise UnauthorizedException
+
+    users_id_to_view_list = [linkbuilder.id for linkbuilder in current_user.linkbuilders] + [
+        current_user.id]
+
+    links_query = db.query(LinkModel).filter(LinkModel.user_id.in_(users_id_to_view_list))
+    total_links_count = links_query.count()
+    links_query = filter_query_by_period_params_link(links_query, period_params)
+    links_query = filter_query_by_model_params_link(links_query, links_params)
+    filtered_links_count = links_query.count()
+    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
+    links = links_query.all()
+    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
+    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
+    return JSONResponse(content={'links': link_ser_out_list_json,
+                                 'total_links_count': total_links_count,
+                                 'filtered_links_count': filtered_links_count})
+
+
+@router.get(
+    "/all",
+    response_model=LinkReadManyTotalCountResponseModel,
+    status_code=fa.status.HTTP_200_OK,
+)
+def links_list_all(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+        db: Session = fa.Depends(get_session_dependency),
+        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
+        links_order: OrderEnum = OrderEnum.desc,
+        period_params: dict = fa.Depends(period_params_dependency),
+        links_params: dict = fa.Depends(link_params_dependency),
+        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
+):
+    """
+    get all links
+    """
+    if not current_user.is_head:
+        raise UnauthorizedException
+
+    links_query = db.query(LinkModel)
+    total_links_count = links_query.count()
+    links_query = filter_query_by_period_params_link(links_query, period_params)
+    links_query = filter_query_by_model_params_link(links_query, links_params)
+    filtered_links_count = links_query.count()
+    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
+    links = links_query.all()
+    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
+    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
+    return JSONResponse(content={'links': link_ser_out_list_json,
+                                 'total_links_count': total_links_count,
+                                 'filtered_links_count': filtered_links_count})
+
+
+@router.get(
+    "/{link_id}",
+    response_model=LinkReadLclDomainsUserSerializer,
+    status_code=fa.status.HTTP_200_OK,
+)
 def links_read(
         link_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     get link by id
@@ -138,52 +229,27 @@ def links_read(
     return link
 
 
-@router.get("/",
-            response_model=LinkReadManyTotalCountResponseModel
-            )
-def links_list(
-        db: Session = fa.Depends(get_db_dependency),
-        links_filter_params: dict = fa.Depends(link_params_dependency_v1),
-        links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
-        links_order: OrderEnum = OrderEnum.desc,
-        links_pagination_params: dict = fa.Depends(pagination_params_dependency),
-):
-    """
-    get all links
-    """
-
-    links_query = db.query(LinkModel) \
-        .filter(extract('year', LinkModel.created_at) == links_pagination_params['year'])
-
-    links_query = filter_query(LinkModel, links_query, links_filter_params)
-    total_links_count = links_query.count()
-    links_query = paginate_query(LinkModel, links_query, links_order_by, links_order, links_pagination_params)
-    links = links_query.all()
-    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
-    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
-    return JSONResponse(content={"links": link_ser_out_list_json, "total_links_count": total_links_count})
-
-
-@router.put("/{link_id}",
-            response_model=LinkReadSingleTaskIdResponseModel
-            )
+@router.put(
+    "/{link_id}",
+    response_model=LinkReadSingleTaskIdResponseModel,
+    status_code=fa.status.HTTP_202_ACCEPTED,
+)
 async def links_update(
         link_id: int,
         link_ser: LinkUpdateSerializer,
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
     """
     update link by id
     and run its checking in background
     """
-    link = get(db, LinkModel, id=link_id)
+    link = get(session, LinkModel, id=link_id)
     if link is None:
         raise fa.HTTPException(status_code=404, detail="Link not found")
     try:
-        link = update(db, link, link_ser)
+        link = update(session, link, link_ser)
     except IntegrityError as error:
         raise LinkAlreadyExistsException(error)
-    update_domains(db, link)
 
     task = check_link_by_id.delay(id=link_id)
     link_ser_out = LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link)
@@ -191,13 +257,15 @@ async def links_update(
     return JSONResponse(content={"link": link_ser_out_json, "task_id": task.task_id})
 
 
-@router.post("/my",
-             response_model=LinkReadSingleTaskIdResponseModel
-             )
+@router.post(
+    "/my",
+    response_model=LinkReadSingleTaskIdResponseModel,
+    status_code=fa.status.HTTP_201_CREATED,
+)
 async def links_create_my(
         link_ser: LinkCreateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     create link of current user
@@ -216,11 +284,13 @@ async def links_create_my(
     return JSONResponse(content={"link": link_ser_out_json, "task_id": task.task_id})
 
 
-@router.post("/check-my",
-             status_code=fa.status.HTTP_201_CREATED)
+@router.post(
+    "/check-my",
+    status_code=fa.status.HTTP_201_CREATED,
+)
 def tasks_check_links_my(
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     links = db.query(LinkModel).filter_by(user=current_user)
     links_id_list = [link.id for link in links]
@@ -228,10 +298,12 @@ def tasks_check_links_my(
     return {'task_id': f'{task.task_id}'}
 
 
-@router.post("/set-link-check-last-ids/all",
-             status_code=fa.status.HTTP_201_CREATED)
-def tasks_set_link_check_last_ids(
-        db: Session = fa.Depends(get_db_dependency),
+@router.post(
+    "/set-link-check-last-ids/all",
+    status_code=fa.status.HTTP_201_CREATED,
+)
+def links_set_link_check_last_ids(
+        db: Session = fa.Depends(get_session_dependency),
 ):
     links = db.query(LinkModel).all()
     links_id_list = [link.id for link in links]
@@ -239,70 +311,58 @@ def tasks_set_link_check_last_ids(
     return {'task_id': f'{task.task_id}'}
 
 
-@router.post("/check-year",
-             status_code=fa.status.HTTP_201_CREATED,
-             )
-def tasks_check_links_all_async(
+@router.post(
+    "/check-year",
+    status_code=fa.status.HTTP_201_CREATED,
+)
+def links_check_all_async(
         year: int = fa.Body(...),
 ):
     task = check_links_per_year.delay(year=year)
     return {'task_id': f'{task.task_id}'}
 
 
-@router.post("/check-many",
-             response_model=LinkReadMessageTaskIdResponseModel,
-             )
-async def links_check_many(
+@router.post(
+    "/check-many",
+    response_model=Union[LinkReadMessageTaskIdResponseModel, dict],
+    status_code=fa.status.HTTP_201_CREATED,
+)
+def links_check_many(
         link_id_list: list[int] = fa.Body(...),
+        sync_mode: bool = fa.Query(False),
+        start_mode: StartModeEnum = fa.Query(StartModeEnum.httpx),
 ):
-    """
-    run checking of many links (by link_id_list) in background
-    """
-    task = check_links_from_list.delay(id_list=link_id_list)
+    if sync_mode:
+        if start_mode == StartModeEnum.httpx:
+            check_links_from_list(id_list=link_id_list)
+        elif start_mode == StartModeEnum.playwright:
+            check_links_from_list_playwright(id_list=link_id_list)
+        return {'message': 'ok'}
+    else:
+        task = check_links_from_list.delay(id_list=link_id_list)
+        return JSONResponse(content={'message': 'ok', "task_id": task.task_id})
+
+
+@router.post(
+    "/check-all",
+    response_model=LinkReadMessageTaskIdResponseModel,
+    status_code=fa.status.HTTP_201_CREATED,
+)
+def links_check_all():
+    task = check_links_all.delay()
     return JSONResponse(content={'message': 'ok', "task_id": task.task_id})
 
 
-@router.post("/check-all",
-             status_code=fa.status.HTTP_201_CREATED,
-             )
-async def links_check_all_async():
-    task = check_links_all.delay()
-    return {'task_id': f'{task.task_id}'}
-
-
-@router.post("/check-many/mode/none/sync",
-             status_code=fa.status.HTTP_201_CREATED)
-def tasks_check_links_all_sync(
-        link_id_list: list[int] = fa.Body(...),
-):
-    check_links_from_list(id_list=link_id_list)
-    return {'message': 'ok'}
-
-
-@router.post("/check-many/mode/playwright/sync",
-             status_code=fa.status.HTTP_201_CREATED)
-def tasks_check_links_all_sync(
-        link_id_list: list[int] = fa.Body(...),
-):
-    check_links_from_list_playwright(id_list=link_id_list)
-    return {'message': 'ok'}
-
-
-@router.post("/check-all/sync",
-             status_code=fa.status.HTTP_201_CREATED,
-             )
-def links_check_all_sync():
-    check_links_all()
-    return {'message': 'ok'}
-
-
-@router.post("/my/upload-from-file",
-             response_model=LinkReadManyTaskIdResponseModel
-             )
+@router.post(
+    "/my/upload-from-file",
+    response_model=Union[LinkReadManyTaskIdResponseModel, dict],
+    status_code=fa.status.HTTP_201_CREATED,
+)
 async def links_create_my_from_file(
         file: UploadFile,
+        sync_mode: bool = fa.Query(default=False),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     create links from template .xlsx file
@@ -322,20 +382,31 @@ async def links_create_my_from_file(
     except IntegrityError as error:
         raise LinkAlreadyExistsFromFileException(filepath=uploaded_file_path, error=error)
 
-    links_id_list = [str(link.id) for link in links]
+    if links:
+        if sync_mode:
+            for link_chunk in chunks_generator(links, settings.LOOP_LINK_CHUNK_SIZE):
+                linkchecker = LinkChecker(db)
+                print(linkchecker)
+                await linkchecker.check_links(links=link_chunk)
+                print(f'LOOP_LINK_CHUNK_SIZE: {settings.LOOP_LINK_CHUNK_SIZE}\n\n\n')
+            return {'message': 'ok'}
+        else:
+            links_id_list = [str(link.id) for link in links]
+            task = check_links_from_list.delay(id_list=links_id_list)
+            link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
+            link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
+            return JSONResponse(content={"links": link_ser_out_list_json, "task_id": task.task_id})
 
-    task = check_links_from_list.delay(id_list=links_id_list)
-    link_ser_out_list = [LinkReadLinkcheckLastAndDomainsSerializer.from_orm(link) for link in links]
-    link_ser_out_list_json = jsonable_encoder(link_ser_out_list)
-    return JSONResponse(content={"links": link_ser_out_list_json, "task_id": task.task_id})
 
-
-@router.post("/upload-from-file-archive-sync",
-             response_model=LinkReadTaskIdResponseModel
-             )
+@router.post(
+    "/upload-from-file-archive",
+    response_model=LinkReadTaskIdResponseModel,
+    status_code=fa.status.HTTP_201_CREATED,
+)
 async def links_create_from_file_archive(
         file: UploadFile,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
+        sync_mode: bool = fa.Body(default=False),
 ):
     """
     create links from .xlsx archive file
@@ -348,59 +419,40 @@ async def links_create_from_file_archive(
     with open(uploaded_file_path, 'wb') as uploaded:
         uploaded.write(contents)
 
-    create_links_from_uploaded_file_archive(uploaded_file_path=uploaded_file_path,
-                                            current_user_id=current_user.id)
-    return {'message': 'ok'}
+    if sync_mode:
+        create_links_from_uploaded_file_archive(uploaded_file_path=uploaded_file_path,
+                                                current_user_id=current_user.id)
+        return {'message': 'ok'}
+    else:
+        task = create_links_from_uploaded_file_archive.delay(uploaded_file_path=uploaded_file_path,
+                                                             current_user_id=current_user.id)
+        return JSONResponse(content={"task_id": task.task_id})
 
 
-@router.post("/upload-from-file-archive",
-             response_model=LinkReadTaskIdResponseModel
-             )
-async def links_create_from_file_archive(
-        file: UploadFile,
-        current_user: UserModel = fa.Depends(get_current_user_dependency),
-):
-    """
-    create links from .xlsx archive file
-    and run their checking in background
-    """
-    if file.content_type != 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-        raise NotExcelException
-    uploaded_file_path = f'static/report/uploaded_links_archive_by_user_id_{current_user.id}.xlsx'
-    contents = await file.read()
-    with open(uploaded_file_path, 'wb') as uploaded:
-        uploaded.write(contents)
-
-    task = create_links_from_uploaded_file_archive.delay(uploaded_file_path=uploaded_file_path,
-                                                         current_user_id=current_user.id)
-    return JSONResponse(content={"task_id": task.task_id})
-
-
-@router.delete("/many",
-               response_model=LinkReadMessageResponseModel)
+@router.delete(
+    "/many",
+    status_code=fa.status.HTTP_204_NO_CONTENT,
+)
 async def links_delete_many(
         link_id_list: list[int] = fa.Body(...),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     delete many link from id_list
     """
     for link_id in link_id_list:
         remove(db, LinkModel, link_id)
-    return {'message': 'ok'}
 
 
-@router.delete("/{link_id}",
-               response_model=LinkReadMessageResponseModel)
+@router.delete(
+    "/{link_id}",
+    status_code=fa.status.HTTP_204_NO_CONTENT,
+)
 async def links_delete(
         link_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     delete link
     """
-    link = get(db, LinkModel, id=link_id)
-    if link is None:
-        raise fa.HTTPException(status_code=404, detail="Link not found")
     remove(db, LinkModel, link_id)
-    return {'message': 'ok'}

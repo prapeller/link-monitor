@@ -1,7 +1,8 @@
 import fastapi as fa
 from sqlalchemy.orm import Session
 
-from core.dependencies import get_db_dependency, get_current_user_dependency
+from core.dependencies import get_session_dependency, get_current_user_dependency
+from core.exceptions import UnauthorizedException
 from database.crud import get, update
 from database.models.link import LinkModel
 from database.models.link_url_domain import LinkUrlDomainModel
@@ -11,9 +12,19 @@ from database.schemas.link_url_domain import LinkUrlDomainReadSerializerV2, Link
 router = fa.APIRouter()
 
 
+@router.get("/my-seo", response_model=list[LinkUrlDomainReadSerializerV2])
+def link_url_domains_list_my(
+        db: Session = fa.Depends(get_session_dependency),
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+):
+    link_url_domains = db.query(LinkUrlDomainModel) \
+        .filter(LinkUrlDomainModel.id.in_(current_user.seo_link_url_domains_id)).all()
+    return link_url_domains
+
+
 @router.get("/my", response_model=list[LinkUrlDomainReadSerializerV2])
 def link_url_domains_list_my(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     link_url_domains = db.query(LinkUrlDomainModel).join(LinkModel) \
@@ -23,12 +34,12 @@ def link_url_domains_list_my(
 
 @router.get("/my-and-my-linkbuilders", response_model=list[LinkUrlDomainReadSerializerV2])
 def link_url_domains_list_my_and_my_linkbuilders(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_teamlead:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only teamlead user can view projects of other linkbuilders')
+        raise UnauthorizedException
+
     users_id_to_view_list = [linkbuilder.id for linkbuilder in current_user.linkbuilders] + [
         current_user.id]
     link_url_domains = db.query(LinkUrlDomainModel).join(LinkModel) \
@@ -38,12 +49,12 @@ def link_url_domains_list_my_and_my_linkbuilders(
 
 @router.get("/", response_model=list[LinkUrlDomainReadSerializerV2])
 def link_url_domains_list_all(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can view all projects')
+        raise UnauthorizedException
+
     link_url_domains = db.query(LinkUrlDomainModel).all()
     return link_url_domains
 
@@ -53,11 +64,11 @@ async def link_url_domains_update(
         id: int,
         link_url_domain_ser: LinkUrlDomainUpdateSerializerV2,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency)
+        db: Session = fa.Depends(get_session_dependency)
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can change projects')
+        raise UnauthorizedException
+
     link_url_domain = get(db, LinkUrlDomainModel, id=id)
     if link_url_domain is None:
         raise fa.HTTPException(status_code=404, detail="project not found")

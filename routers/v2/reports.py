@@ -5,15 +5,18 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
-from core.dependencies import (get_db_dependency, get_current_user_dependency, period_params_dependency,
-                               link_params_dependency_v2)
+from core.dependencies import (get_session_dependency,
+                               get_current_user_dependency,
+                               period_params_dependency,
+                               link_params_dependency)
 from core.enums import LinkOrderByEnum, OrderEnum
+from core.exceptions import UnauthorizedException
 from database.crud import get_query_all_active, get
 from database.models.link import LinkModel
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
 from database.schemas.user import DashboardUserDataResponseModel
-from core.shared import filter_query_by_period_params, filter_query_by_link_params
+from core.shared import filter_query_by_period_params_link, filter_query_by_model_params_link
 from services.file_handler import iterfile
 from services.reporter.based_link.generator import generate_filtered_links_report
 from services.reporter.based_link.generator import get_dashboard_data
@@ -28,15 +31,15 @@ router = fa.APIRouter()
 @router.get("/dashboard/head",
             response_model=list[DashboardUserDataResponseModel])
 async def get_report_dashboard_head(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
         period_params=fa.Depends(period_params_dependency)
 ):
     """returns dashboard table data on
     'Dashboard' button for Head"""
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can view dashboard for all users')
+        raise UnauthorizedException
+
     users = get_query_all_active(db, UserModel).all()
 
     date_from = period_params['date_from']
@@ -49,15 +52,15 @@ async def get_report_dashboard_head(
 @router.get("/dashboard/teamlead",
             response_model=list[DashboardUserDataResponseModel])
 async def get_report_dashboard_teamlead(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
         period_params=fa.Depends(period_params_dependency)
 ):
     """returns dashboard table data on
     'Dashboard' button for Teamlead"""
     if not current_user.is_teamlead:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only teamlead user can view dashboard for his linkbuilders')
+        raise UnauthorizedException
+
     users = get_query_all_active(db, UserModel).filter_by(teamlead_id=current_user.id).all()
     users.append(current_user)
     users = list(set(users))
@@ -72,7 +75,7 @@ async def get_report_dashboard_teamlead(
 @router.get("/link_url_domains/{id}/users/all/ui")
 async def get_report_link_url_domains_id_users_all_ui(
         id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         year: int | None = datetime.datetime.now().year,
 ):
     """returns report table data on
@@ -91,7 +94,7 @@ async def get_report_link_url_domains_id_users_all_ui(
 @router.get("/link_url_domains/{id}/users/all")
 async def get_report_link_url_domains_id_users_all(
         id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         year: int | None = datetime.datetime.now().year,
 ):
     """returns report file.xlsx on
@@ -115,11 +118,11 @@ async def get_report_link_url_domains_id_users_all(
 @router.get("/links/filtered")
 async def get_report_links_filtered(
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         links_order_by: LinkOrderByEnum = LinkOrderByEnum.created_at,
         links_order: OrderEnum = OrderEnum.desc,
         period_params: dict = fa.Depends(period_params_dependency),
-        links_params: dict = fa.Depends(link_params_dependency_v2),
+        links_params: dict = fa.Depends(link_params_dependency),
 ):
     """returns filtered links file.xlsx on
     'Get Filtered Links' button for Head/Teamlead/Linkbuilder/Seo
@@ -134,10 +137,13 @@ async def get_report_links_filtered(
         users_id_to_view_list = [linkbuilder.id for linkbuilder in current_user.linkbuilders] + [
             current_user.id]
         links_query = db.query(LinkModel).filter(LinkModel.user_id.in_(users_id_to_view_list))
+    elif current_user.is_seo:
+        links_query = db.query(LinkModel) \
+            .filter(LinkModel.link_url_domain_id.in_(current_user.seo_link_url_domains_id))
     else:
         links_query = db.query(LinkModel).filter(LinkModel.user_id == current_user.id)
-    links_query = filter_query_by_period_params(links_query, period_params)
-    links_query = filter_query_by_link_params(links_query, links_params, LinkModel)
+    links_query = filter_query_by_period_params_link(links_query, period_params)
+    links_query = filter_query_by_model_params_link(links_query, links_params)
     order = sa.desc if links_order.value == 'desc' else sa.asc
     links_query = links_query.order_by(order(getattr(LinkModel, links_order_by)))
     links = links_query.all()

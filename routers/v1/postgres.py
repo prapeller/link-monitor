@@ -19,6 +19,7 @@ async def postgres_dump(
 ):
     if not current_user.is_head:
         raise UnauthorizedException
+
     script_path = f"{os.getcwd()}/scripts/postgres/backup_local.sh" if from_local else f"{os.getcwd()}/scripts/postgres/backup.sh"
     assert os.path.isfile(script_path)
     result = subprocess.run(script_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -34,6 +35,7 @@ async def postgres_check_dumps(
 ):
     if not current_user.is_head:
         raise UnauthorizedException
+
     script_path = f"{os.getcwd()}/scripts/postgres/backups.sh"
     assert os.path.isfile(script_path)
     result = subprocess.run(script_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -49,6 +51,7 @@ async def postgres_download_last_dump(
 ):
     if not current_user.is_head:
         raise UnauthorizedException
+
     file_path = f"{os.getcwd()}/static/backups/backup_last"
     assert os.path.isfile(file_path)
     headers = {'Content-Disposition': 'attachment',
@@ -64,6 +67,7 @@ async def postgres_restore(
 ):
     if not current_user.is_head:
         raise UnauthorizedException
+
     contents = await dump_file.read()
     uploaded_file_path = f'static/backups/uploaded_backup'
     with open(uploaded_file_path, 'wb') as uploaded:

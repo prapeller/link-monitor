@@ -3,16 +3,14 @@ import openpyxl
 from pydantic.error_wrappers import ValidationError
 
 from core.exceptions import NotExcelException, WhileUploadingArchiveException
+from services.domain_checker import get_domain_name_from_url, check_pudomains_with_similarweb
 from database import SessionLocal
-from database.crud import get_or_create, get, create_user_from_keycloak
+from database.crud import get, create_user_from_keycloak, get_or_create_by_name
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.page_url_domain import PageUrlDomainModel
 from database.models.user import UserModel
 from database.schemas.link import LinkCreateWithDomainsSerializer
-from database.schemas.link_url_domain import LinkUrlDomainCreateSerializer
-from database.schemas.page_url_domain import PageUrlDomainCreateSerializer
 from services.keycloak import KCAdmin
-from core.shared import get_domain_name_from_url
 
 
 def iterfile(filepath):
@@ -83,8 +81,8 @@ def check_file_on_duplicates(filepath) -> list[str]:
 
 def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None) \
         -> list[LinkCreateWithDomainsSerializer]:
-    db = SessionLocal()
-    current_user = get(db, UserModel, id=current_user_id)
+    session = SessionLocal()
+    current_user = get(session, UserModel, id=current_user_id)
 
     try:
         wb = openpyxl.load_workbook(filename=filepath)
@@ -117,12 +115,12 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
                 link_url = link_url + '/'
 
             link_url_domain_name = get_domain_name_from_url(link_url)
-            link_url_domain_ser = LinkUrlDomainCreateSerializer(name=link_url_domain_name)
-            link_url_domain = get_or_create(db, LinkUrlDomainModel, link_url_domain_ser)
+            link_url_domain, lud_created = get_or_create_by_name(session, LinkUrlDomainModel, link_url_domain_name)
 
             page_url_domain_name = get_domain_name_from_url(page_url)
-            page_url_domain_ser = PageUrlDomainCreateSerializer(name=page_url_domain_name)
-            page_url_domain = get_or_create(db, PageUrlDomainModel, page_url_domain_ser)
+            page_url_domain, pud_created = get_or_create_by_name(session, PageUrlDomainModel, page_url_domain_name)
+
+            check_pudomains_with_similarweb.delay(id_list=[page_url_domain.id])
 
             link_data = {
                 'user_id': current_user_id,
@@ -168,16 +166,14 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
                 link_url = link_url + '/'
 
             link_url_domain_name = get_domain_name_from_url(link_url)
-            link_url_domain_ser = LinkUrlDomainCreateSerializer(name=link_url_domain_name)
-            link_url_domain = get_or_create(db, LinkUrlDomainModel, link_url_domain_ser)
+            link_url_domain, lud_created = get_or_create_by_name(session, LinkUrlDomainModel, link_url_domain_name)
 
             page_url_domain_name = get_domain_name_from_url(page_url)
-            page_url_domain_ser = PageUrlDomainCreateSerializer(name=page_url_domain_name)
-            page_url_domain = get_or_create(db, PageUrlDomainModel, page_url_domain_ser)
+            page_url_domain, pud_created = get_or_create_by_name(session, PageUrlDomainModel, page_url_domain_name)
 
-            user = get(db, UserModel, email=user_email)
+            user = get(session, UserModel, email=user_email)
             if user is None:
-                user = create_user_from_keycloak(db, kc_admin, user_email, user_first_name, user_last_name)
+                user = create_user_from_keycloak(session, kc_admin, user_email, user_first_name, user_last_name)
 
             link_data = {
                 'user_id': user.id,

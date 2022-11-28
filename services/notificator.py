@@ -133,13 +133,13 @@ def send_telegram(user: UserModel, message: str) -> None:
 def send_email(user: UserModel, message):
     """sends email to user.email using settings.SMTP"""
     msg = EmailMessage()
-    msg['Subject'] = f"{settings.BASE_URL}"
+    msg['Subject'] = "report.kaisaco.com"
     msg['From'] = settings.EMAILS_FROM_EMAIL
     msg['To'] = user.email
     msg.set_content(
         f"{message}\n\n"
         f"This message was sent automatically, you don't  need to reply to it.\n"
-        f"To cancel receiving report emails - visit {settings.BASE_URL} and turn off notifications."
+        f"To cancel receiving report emails - visit report.kaisaco.com and turn off notifications."
     )
 
     try:
@@ -166,7 +166,7 @@ def notify_user(db: Session, user: UserModel):
 
     message += prepare_message_count_status(db, user)
     message += prepare_message_ssl_expiration_linkbuilder(db, user, SSL_EXPIRATION_DAYS)
-    message += f"More information at {settings.BASE_URL}."
+    message += "More information at report.kaisaco.com."
     if user.is_accepting_telegram and user.telegram_id:
         send_telegram(user, message)
     else:

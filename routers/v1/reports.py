@@ -2,7 +2,7 @@ import fastapi as fa
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
-from core.dependencies import get_db_dependency, get_current_user_dependency
+from core.dependencies import get_session_dependency, get_current_user_dependency
 from database.crud import get
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
@@ -18,7 +18,7 @@ router = fa.APIRouter()
 
 @router.get("/link_url_domains/all/users/all")
 def get_report_link_url_domains_all_users_all(
-        db: Session = fa.Depends(get_db_dependency)
+        db: Session = fa.Depends(get_session_dependency)
 ):
     """returns report file.xlsx on
     'Get Report' button for Head"""
@@ -36,7 +36,7 @@ def get_report_link_url_domains_all_users_all(
 
 @router.get("/link_url_domains/all/users/my-linkbuilders")
 def get_report_link_url_domains_all_users_my_linkbuilders(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency)
 ):
     """returns report file.xlsx on
@@ -55,7 +55,7 @@ def get_report_link_url_domains_all_users_my_linkbuilders(
 
 @router.get("/link_url_domains/all/users/me")
 def get_report_link_url_domains_all_users_me(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency)
 ):
     """returns report file.xlsx on
@@ -74,7 +74,7 @@ def get_report_link_url_domains_all_users_me(
 
 @router.get("/links/all/users/me")
 def get_report_links_all_users_me(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency)
 ):
     """returns links file.xlsx on
@@ -91,7 +91,7 @@ def get_report_links_all_users_me(
 @router.get("/link_url_domains/{id}/users/all/ui", deprecated=True)
 def get_report_link_url_domains_id_users_all_ui(
         id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """returns report table data on
     'Project.id' button for Head/Teamlead"""
@@ -108,7 +108,7 @@ def get_report_link_url_domains_id_users_all_ui(
 @router.get("/link_url_domains/{id}/users/all", deprecated=True)
 def get_report_link_url_domains_id_users_all(
         id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """returns report file.xlsx on
     'Project.id' button for Head/Teamlead"""

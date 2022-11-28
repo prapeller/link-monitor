@@ -1,26 +1,33 @@
 import asyncio
 import ssl
 import subprocess
-from collections import OrderedDict
 from datetime import datetime
 
 import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from core.shared import (chunks_generator, get_domain_name_from_url, normalize, check_if_link_domains_exist,
-                         remove_https)
 from core.config import settings
 from core.exceptions import CheckWithPlaywrightException
+from core.shared import (
+    chunks_generator,
+    normalize,
+    remove_https,
+    update_links,
+    get_proxy_for_playwright,
+    get_next_proxy,
+    get_proxies_dict,
+    get_visit_from, LIMITS_5, TIMEOUT_2, TIMEOUT_5
+)
 from database.crud import create_many
 from database.models.link import LinkModel
 from database.models.link_check import LinkCheckModel
 from database.schemas.link_check import LinkCheckCreateSerializer
-
-LIMITS_5 = httpx.Limits(max_connections=5)
-TIMEOUT_2 = httpx.Timeout(connect=2, read=2, write=2, pool=None)
-TIMEOUT_5 = httpx.Timeout(connect=5, read=5, write=5, pool=None)
-TIMEOUT_30 = httpx.Timeout(connect=30, read=30, write=30, pool=None)
+from services.domain_checker import (
+    get_domain_name_from_url,
+    recreate_domains,
+    check_pudomains_with_similarweb
+)
 
 
 def get_status_and_message(
@@ -46,11 +53,12 @@ def get_status_and_message(
         message += f'code: {response_code};\n'
         return status, message
 
-    if href_has_link_url_domain:
-        message += f'href with project\'s domain found: "{href_with_link_url_domain}";\n'
     if not href_is_found:
         status = 'red'
-        message += 'acceptor not found;\n'
+        if href_has_link_url_domain:
+            message += f'found href "{href_with_link_url_domain}" differs;\n'
+        else:
+            message += 'acceptor not found;\n'
     if rel_has_nofollow:
         status = 'red'
         message += 'rel has nofollow;\n'
@@ -65,7 +73,7 @@ def get_status_and_message(
         message += 'robots has nofollow;\n'
     if anchor_text_found != '' and (normalize(anchor_text_found) != normalize(anchor_text)):
         status = 'red'
-        message += f'anchor text differs: "{anchor_text_found}";\n'
+        message += f'found anchor text "{anchor_text_found}" differs;\n'
     if not status:
         status = 'green'
         message = 'ok;\n'
@@ -79,10 +87,10 @@ def get_status_and_message(
 
 class LinkChecker:
 
-    def __init__(self, db, start_mode=None):
+    def __init__(self, session, start_mode=None):
 
-        self.db = db
-        self.start_mode=start_mode
+        self.session = session
+        self.start_mode = start_mode
         self.lcs_list = []
         self.check_with_proxies_link_ids = []
         self.check_with_pw_link_ids = []
@@ -114,29 +122,33 @@ class LinkChecker:
         # if check_with_proxies_lisk_ids, recheck them with proxies
         if self.check_with_proxies_link_ids:
             await self.check_links_with_proxies()
+
         # if check_with_playwright_link_ids, recheck them with playwright
         if self.check_with_pw_link_ids:
             await self.check_links_with_playwright()
 
         # then create linkchecks based on this lcs_list
-        linkcheck_list = create_many(self.db, LinkCheckModel, serializers=self.lcs_list)
+        linkchecks = create_many(self.session, LinkCheckModel, serializers=self.lcs_list)
+
+        # then update link.link_check_last_id, link.link_check_last_status, link.link_check_last_result_message
+        update_links(self.session, links, linkchecks)
 
         # then start SSL checking of created links
-        linkchecks_id_list = [str(linkcheck.id) for linkcheck in linkcheck_list]
+        linkchecks_id_list = [str(linkcheck.id) for linkcheck in linkchecks]
         subprocess.run(
             ["python3.10", "ssl_cli.py", "-l", *linkchecks_id_list],
         )
 
     async def check_links_with_proxies(self):
         # current_proxy = ('AT Austria, Vienna', ('10.0.2.9', 3128))
-        current_proxy = self.get_next_proxy()
+        current_proxy = get_next_proxy(proxy_ord_dict=settings.LINK_CHECKER_PROXY_ORDERED_DICT)
         while self.check_with_proxies_link_ids and current_proxy is not None:
-            current_proxies_dict = self.get_proxies_dict(current_proxy)
-            current_visit_from = self.get_visit_from(current_proxy)
+            current_proxies_dict = get_proxies_dict(current_proxy)
+            current_visit_from = get_visit_from(current_proxy)
 
             self.remove_errored_from_lcs_list(self.check_with_proxies_link_ids)
 
-            links = self.db.query(LinkModel).filter(LinkModel.id.in_(self.check_with_proxies_link_ids)).all()
+            links = self.session.query(LinkModel).filter(LinkModel.id.in_(self.check_with_proxies_link_ids)).all()
             self.check_with_proxies_link_ids = []
             lcs_list_new = await self.get_linkcheck_ser_list(
                 links,
@@ -144,7 +156,8 @@ class LinkChecker:
                 mode=None, proxies_dict=current_proxies_dict, visit_from=current_visit_from
             )
             self.lcs_list.extend(lcs_list_new)
-            current_proxy = self.get_next_proxy(current_proxy)
+            current_proxy = get_next_proxy(proxy_ord_dict=settings.LINK_CHECKER_PROXY_ORDERED_DICT,
+                                           current_proxy=current_proxy)
             # if still timeout_link_ids, then check with another proxy
         # if still timeout_link_ids after all proxies, then check with playwright
         if self.check_with_proxies_link_ids:
@@ -154,11 +167,11 @@ class LinkChecker:
     async def check_links_with_playwright(self):
         self.remove_errored_from_lcs_list(self.check_with_pw_link_ids)
 
-        current_proxy = self.get_next_proxy()
-        current_proxies_dict = self.get_proxies_dict(current_proxy)
-        current_visit_from = self.get_visit_from(current_proxy)
+        current_proxy = get_next_proxy(proxy_ord_dict=settings.LINK_CHECKER_PROXY_ORDERED_DICT)
+        current_proxies_dict = get_proxies_dict(current_proxy)
+        current_visit_from = get_visit_from(current_proxy)
 
-        check_with_pw_links = self.db.query(LinkModel).filter(LinkModel.id.in_(self.check_with_pw_link_ids)).all()
+        check_with_pw_links = self.session.query(LinkModel).filter(LinkModel.id.in_(self.check_with_pw_link_ids)).all()
         self.check_with_pw_link_ids = []
         for link_chunk in chunks_generator(check_with_pw_links, chunk_size=settings.PLAYWRIGHT_LINK_CHUNK_SIZE):
             lcs_list_new = await self.get_linkcheck_ser_list(
@@ -176,7 +189,10 @@ class LinkChecker:
                                      ) -> list:
         async with httpx.AsyncClient(timeout=timeout, limits=limits, proxies=proxies_dict) as client:
             for link in links:
-                check_if_link_domains_exist(self.db, link)
+                pudomain_created, ludomain_created = recreate_domains(self.session, link)
+                if pudomain_created:
+                    check_pudomains_with_similarweb.delay(id_list=[link.page_url_domain_id])
+
                 tasks = [
                     self.get_link_check_ser(client, link, mode=mode, proxies_dict=proxies_dict, visit_from=visit_from)
                     for link in links]
@@ -225,7 +241,7 @@ class LinkChecker:
             if mode == 'playwright':
                 async with async_playwright() as p:
                     browser = await p.webkit.launch(
-                        proxy=self.get_proxy_for_playwright(proxies_dict),
+                        proxy=get_proxy_for_playwright(proxies_dict),
                         headless=True
                     )
                     page = await browser.new_page(ignore_https_errors=True)
@@ -249,7 +265,14 @@ class LinkChecker:
                         break
                     if response.next_request:
                         redirect_url = str(response.next_request.url)
-                    response_text = response.content.decode('utf-8', 'ignore')
+                    try:
+                        response_text = response.content.decode('utf-8', 'strict')
+                    except UnicodeDecodeError:
+                        try:
+                            response_text = response.content.decode('latin-1', 'strict')
+                        except UnicodeDecodeError:
+                            response_text = response.content.decode('utf-8', 'ignore')
+
                     request = response.next_request
                 if response_code == 403 or response_code == 503:
                     raise CheckWithPlaywrightException(f'forbidden with response code {response_code}',
@@ -266,10 +289,24 @@ class LinkChecker:
                     if 'nofollow' in m_content:
                         meta_robots_has_nofollow = True
                     break
-            anchors = soup.find_all('a')
+            found_anchors = soup.find_all('a')
 
-            for a in anchors:
+            # count anchor.link_url == link.link_url from all found_anchors
+            for a in found_anchors:
                 current_a_href = a.get('href')
+                if current_a_href is None:
+                    continue
+                if current_a_href == link.link_url \
+                        or current_a_href.strip('/') == link.link_url.strip('/') \
+                        or current_a_href.strip('/') == link_url_without_https.strip('/'):
+                    anchor_count += 1
+
+            # check matches with link
+            for a in found_anchors:
+
+                current_a_href = a.get('href')
+                if current_a_href is None:
+                    continue
                 current_a_href_domain_name = get_domain_name_from_url(current_a_href) if current_a_href else None
                 if current_a_href_domain_name:
                     # check if current_a_href goes to other domain
@@ -287,7 +324,7 @@ class LinkChecker:
                                 or current_a_href.strip('/') == link_url_without_https.strip('/'):
                             href_is_found = True
                             anchor_text_found = a.getText()
-                            anchor_count += 1
+
                             rel = a.get('rel')
                             if rel:
                                 href_has_rel = True
@@ -295,6 +332,8 @@ class LinkChecker:
                                     rel_has_nofollow = True
                                 if 'sponsored' in rel:
                                     rel_has_sponsored = True
+                            # if at least once href_is_found, no need to seek further
+                            break
 
             # issue #70: for cases that require loading js scripts first and then parsing data
             # issue #75: there are sites that render hrefs depending on current location, so better check with playwright and proxy
@@ -346,7 +385,7 @@ class LinkChecker:
 
         link_check_ser = LinkCheckCreateSerializer(
             link_id=link.id,
-            response_text=response_text if mode == 'playwright' else None,
+            # response_text=response_text if mode == 'playwright' else None,
             response_code=response_code,
             redirect_codes_list=str(redirect_codes_list),
             redirect_url=redirect_url,
@@ -367,42 +406,6 @@ class LinkChecker:
         print(
             f'finished getting soup data, link.id: {link.id}, executing time: {finish_time - start_time}')
         return link_check_ser
-
-    def get_proxy_for_playwright(self, proxies_dict):
-        proxy = None
-        if proxies_dict and proxies_dict.get('http://'):
-            proxy = {
-                'server': proxies_dict['http://'].replace('http://', '')
-            }
-        return proxy
-
-    def get_next_proxy(self, current_proxy: tuple | None = None,
-                       proxy_od: OrderedDict = settings.PROXY_LIST) -> tuple | None:
-        # return next proxy tuple ('AT Austria, Vienna', ('10.0.2.9', 3128)) or None
-        proxy_list = list(proxy_od.items())
-        if current_proxy is None:
-            return proxy_list[0]
-        else:
-            current_proxy_index = proxy_list.index(current_proxy)
-            try:
-                return proxy_list[current_proxy_index + 1]
-            except IndexError:
-                return None
-
-    def get_proxies_dict(self, current_proxy: tuple | None = None) -> dict:
-        # return proxies dict {'http://': 'http://10.0.2.3:3128', 'https://': 'https://10.0.2.3:3128'}
-        proxies_dict = {
-            'http://': f"http://{current_proxy[1][0]}:{current_proxy[1][1]}",
-            'https://': f"https://{current_proxy[1][0]}:{current_proxy[1][1]}",
-        } if current_proxy is not None else {
-            'http://': None,
-            'https://': None,
-        }
-        return proxies_dict
-
-    def get_visit_from(self, current_proxy: tuple | None = None) -> str | None:
-        # return str from current_proxy tuple or None if current_proxy is None
-        return current_proxy[0] if current_proxy is not None else None
 
     def remove_errored_from_lcs_list(self, error_link_ids):
         error_lcs_list = [lcs for lcs in self.lcs_list if lcs.link_id in error_link_ids]

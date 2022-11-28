@@ -15,6 +15,12 @@ class LinkUpdateSerializer(pd.BaseModel):
 
     user_id: int | None = None
 
+    @pd.validator('link_url')
+    def link_url_ends_with_backslash(cls, v):
+        if not v.endswith('/'):
+            raise ValueError('must end with "/"')
+        return v
+
 
 class LinkCreateSerializer(LinkUpdateSerializer):
     page_url: pd.HttpUrl
@@ -25,17 +31,14 @@ class LinkCreateSerializer(LinkUpdateSerializer):
     price: float | None = None
     contact: str | None = None
 
-    @pd.validator('link_url')
-    def link_url_ends_with_backslash(cls, v):
-        if not v.endswith('/'):
-            raise ValueError('must end with "/"')
-        return v
-
 
 class LinkCreateWithDomainsSerializer(LinkCreateSerializer):
     created_at: datetime = None
     link_url_domain_id: int | None = None
     page_url_domain_id: int | None = None
+
+    class Config:
+        error_msg_templates = {"type_error.float": "must be a number!"}
 
 
 class LinkReadSerializer(LinkUpdateSerializer):

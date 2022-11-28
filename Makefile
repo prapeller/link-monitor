@@ -51,3 +51,6 @@ report_db:
 
 generatekey:
 	python -c 'import secrets; print(secrets.token_urlsafe(38))'
+
+test:
+	pytest --tb=short

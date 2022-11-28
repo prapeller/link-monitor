@@ -2,7 +2,7 @@ import fastapi as fa
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from core.dependencies import get_db_dependency, get_current_user_dependency
+from core.dependencies import get_session_dependency, get_current_user_dependency
 from database.crud import get, remove
 from database.models.link_check import LinkCheckModel
 from database.models.user import UserModel
@@ -15,7 +15,7 @@ router = fa.APIRouter()
 
 @router.get("/", response_model=list[LinkCheckReadLinkSerializer])
 def linkchecks_list(
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     get all linkchecks
@@ -27,7 +27,7 @@ def linkchecks_list(
 @router.get("/my", response_model=list[LinkCheckReadLinkSerializer])
 def linkchecks_list_my(
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """"
     get all linkchecks of current user
@@ -40,7 +40,7 @@ def linkchecks_list_my(
 @router.get("/{linkcheck_id}", response_model=LinkCheckReadLinkSerializer)
 def linkchecks_read(
         linkcheck_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     get linkcheck by id
@@ -54,7 +54,7 @@ def linkchecks_read(
 @router.get("/link/{link_id}", response_model=list[LinkCheckReadSerializer])
 def linkchecks_list_by_link(
         link_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     get linkchecks of link
@@ -67,13 +67,10 @@ def linkchecks_list_by_link(
 @router.delete("/{linkcheck_id}")
 async def linkchecks_delete(
         linkcheck_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     delete linkcheck
     """
-    linkcheck = get(db, LinkCheckModel, id=linkcheck_id)
-    if linkcheck is None:
-        raise fa.HTTPException(status_code=404, detail="Linkcheck not found")
     remove(db, LinkCheckModel, linkcheck_id)
     return {'message': 'ok'}

@@ -1,22 +1,32 @@
 import datetime
 
-from fastapi import Security, Depends
+import fastapi as fa
 from fastapi_resource_server import JwtDecodeOptions, OidcResourceServer
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from database import SessionLocal
-from database.crud import get
-from database.models.user import UserModel
 from core.enums import LinkStatusEnum
+from database import Base, SessionLocal, SessionInMemory, in_memory_engine
+from database.models.user import UserModel
+from database.repository import SqlAlchemyRepository
 
 
-def get_db_dependency():
-    db = SessionLocal()
+def get_session_dependency():
+    session = SessionLocal()
     try:
-        yield db
+        yield session
     finally:
-        db.close()
+        session.close()
+
+
+def get_sqlalchemy_repo_dependency():
+    session = SessionLocal()
+
+    repo = SqlAlchemyRepository(session)
+    try:
+        yield repo
+    finally:
+        session.close()
 
 
 decode_options = JwtDecodeOptions(verify_aud=False)
@@ -27,15 +37,22 @@ oauth2_scheme = OidcResourceServer(
 )
 
 
-async def get_current_user_dependency(db: Session = Depends(get_db_dependency),
-                                      keycloak_data: dict = Security(oauth2_scheme)) -> UserModel:
-    current_user = get(db, UserModel, email=keycloak_data.get('email'))
+async def get_current_user_dependency(session: Session = fa.Depends(get_session_dependency),
+                                      keycloak_data: dict = fa.Security(oauth2_scheme)) -> UserModel:
+    current_user = SqlAlchemyRepository(session).get(UserModel, email=keycloak_data.get('email'))
     return current_user
 
 
-async def link_params_dependency_v1(
+async def get_current_user_roles_dependency(keycloak_data: dict = fa.Security(oauth2_scheme)) -> list:
+    current_user_roles: list = keycloak_data.get('realm_access').get('roles')
+    return current_user_roles
+
+
+async def link_params_dependency(
+        # query_params '&link_url_domain_name=20bet.tv&link_url_domain_name=20-bet.in'
+        # will be interpreted to filter_params['link_url_domain_name'] = ['20bet.tv', '20-bet.in']
         user_id: int | None = None,
-        link_url_domain_name: str | None = None,
+        link_url_domain_name: list[str] | None = fa.Query(None),
         page_url: str | None = None,
         link_url: str | None = None,
         anchor: str | None = None,
@@ -44,7 +61,6 @@ async def link_params_dependency_v1(
         price: float | None = None,
         screenshot_url: str | None = None,
         contact: str | None = None,
-        created_at: str | None = None,
         link_check_last_status: LinkStatusEnum = None,
         link_check_last_result_message: str | None = None,
         link_check_last_created_at: str | None = None,
@@ -60,57 +76,37 @@ async def link_params_dependency_v1(
         'price': price,
         'screenshot_url': screenshot_url,
         'contact': contact,
-        'created_at': created_at,
         'link_check_last_status': link_check_last_status,
         'link_check_last_result_message': link_check_last_result_message,
         'link_check_last_created_at': link_check_last_created_at,
     }
 
 
-async def link_params_dependency_v2(
-        user_id: int | None = None,
-        link_url_domain_name: str | None = None,
-        page_url: str | None = None,
-        link_url: str | None = None,
-        anchor: str | None = None,
-        da: float | None = None,
-        dr: float | None = None,
-        price: float | None = None,
-        screenshot_url: str | None = None,
-        contact: str | None = None,
-        link_check_last_status: LinkStatusEnum = None,
-        link_check_last_result_message: str | None = None,
-        link_check_last_created_at: str | None = None,
+def pudomain_params_dependency(
+        name: str | None = None,
+        link_da_last_from: float | None = None,
+        link_da_last_upto: float | None = None,
+        link_dr_last_from: float | None = None,
+        link_dr_last_upto: float | None = None,
+        link_price_avg_from: float | None = None,
+        link_price_avg_upto: float | None = None,
+        language_tags_id: list[str] | None = fa.Query(None),
+        country_tags_id: list[str] | None = fa.Query(None),
 ):
     return {
-        'user_id': user_id,
-        'link_url_domain_name': link_url_domain_name,
-        'page_url': page_url,
-        'link_url': link_url,
-        'anchor': anchor,
-        'da': da,
-        'dr': dr,
-        'price': price,
-        'screenshot_url': screenshot_url,
-        'contact': contact,
-        'link_check_last_status': link_check_last_status,
-        'link_check_last_result_message': link_check_last_result_message,
-        'link_check_last_created_at': link_check_last_created_at,
+        'name': name,
+        'link_da_last_from': link_da_last_from,
+        'link_da_last_upto': link_da_last_upto,
+        'link_dr_last_from': link_dr_last_from,
+        'link_dr_last_upto': link_dr_last_upto,
+        'link_price_avg_from': link_price_avg_from,
+        'link_price_avg_upto': link_price_avg_upto,
+        'language_tags_id': language_tags_id,
+        'country_tags_id': country_tags_id,
     }
 
 
 async def pagination_params_dependency(
-        offset: int | None = None,
-        limit: int | None = None,
-        year: int | None = datetime.datetime.now().year,
-):
-    return {
-        'offset': offset,
-        'limit': limit,
-        'year': year,
-    }
-
-async def pagination_params_dependency_v2(
         offset: int | None = None,
         limit: int | None = None,
 ):

@@ -25,4 +25,5 @@ gunicorn
 celery==5.2.7
 redis==4.3.3
 flower==1.0.0
-playwright==1.24.1
+playwright==1.27
+langdetect==1.0.9

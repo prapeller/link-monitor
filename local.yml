@@ -68,21 +68,21 @@ services:
     networks:
       - report
 
-  beat:
-    build:
-      context: .
-      dockerfile: ./docker/api/Dockerfile
-    command: /start-beat
-    container_name: celery_beat
-    volumes:
-      - .:/app
-    env_file:
-      - ./.envs/.local
-    depends_on:
-      - redis
-      - postgres
-    networks:
-      - report
+#  beat:
+#    build:
+#      context: .
+#      dockerfile: ./docker/api/Dockerfile
+#    command: /start-beat
+#    container_name: celery_beat
+#    volumes:
+#      - .:/app
+#    env_file:
+#      - ./.envs/.local
+#    depends_on:
+#      - redis
+#      - postgres
+#    networks:
+#      - report
 
   api:
     build:

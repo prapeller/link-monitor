@@ -14,10 +14,7 @@ class UserUpdateSerializer(pd.BaseModel):
     telegram_id: str | None = None
     teamlead_id: int | None = None
     is_active: bool | None = None
-
-
-class UserUpdateTelegramSerializer(pd.BaseModel):
-    telegram_id: str | None = None
+    is_seo: bool | None = None
 
 
 class UserCreateSerializer(UserUpdateSerializer):
@@ -33,8 +30,8 @@ class UserReadSerializer(UserCreateSerializer):
 
     is_active: bool
 
+    seo_link_url_domains_id: list[int] = []
     linkbuilders_id: list[int] = []
-    links_id: list[int] = []
 
     class Config:
         orm_mode = True
@@ -47,8 +44,27 @@ class UserReadTeamleadSerializer(UserReadSerializer):
         orm_mode = True
 
 
-class UserReadTeamleadNameSerializer(UserReadTeamleadSerializer):
-    teamlead_name: str | None = None
+# class UserReadTeamleadNameSerializer(UserReadTeamleadSerializer):
+#     teamlead_name: str | None = None
+#
+#     class Config:
+#         orm_mode = True
+
+
+# class UserReadLinksSerializer(UserCreateSerializer):
+#     id: int
+#     uuid: str
+#     created_at: datetime
+#     updated_at: datetime | None = None
+#
+#     is_active: bool
+#
+#     seo_link_url_domains_id: list[int] = []
+#     linkbuilders_id: list[int] = []
+#     links_id: list[int] = []
+#
+#     class Config:
+#         orm_mode = True
 
 
 class DashboardUserDataResponseModel(pd.BaseModel):
@@ -61,3 +77,6 @@ class DashboardUserDataResponseModel(pd.BaseModel):
     red_links_count: int
     period_link_growth_green: int
     period_link_growth_red: int
+
+
+UserReadTeamleadSerializer.update_forward_refs()

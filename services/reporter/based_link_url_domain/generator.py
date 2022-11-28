@@ -12,15 +12,24 @@ from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
 
 
+def get_year_week(date: datetime.datetime):
+    """if date month is January and week is 52 (last year week) - then it is 1st week"""
+    first_jan_week_number = int(datetime.datetime(date.year, 1, 1).strftime("%V"))
+    if date.month == 1 and date.day == 1 and first_jan_week_number == 53:
+        return 1
+    if first_jan_week_number == 53:
+        week_number = int(date.strftime("%V")) + 1
+    else:
+        week_number = int(date.strftime("%V"))
+
+    if week_number == 52 and date.month == 1:
+        return 1
+    assert week_number in range(1, 54), f'week number {week_number} should be from 1 to 53'
+    return week_number
+
+
 def get_week_number(date: datetime.datetime):
     """should return only weeks from 1 to 5"""
-
-    def get_year_week(date: datetime.datetime):
-        """if date month is January and week is 52 (last year week) - then it is 1st week"""
-        week_number = int(date.strftime("%V"))
-        if week_number == 52 and date.month == 1:
-            return 1
-        return week_number
 
     first_day_of_month = date.replace(day=1)
     month_starts_in_workweek = False
@@ -37,7 +46,7 @@ def get_week_number(date: datetime.datetime):
         # in case if date month is January all works fine there and no need to subtract 1week
         # (bcz above in get_week() we determined that in such cases first week will be 1st anyway)
         week_number = week_number - 1
-
+    assert week_number in (1, 2, 3, 4, 5), f"week number: {week_number}, for date: {date} should be from 1 to 5"
     return week_number
 
 

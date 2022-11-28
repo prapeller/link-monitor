@@ -1,11 +1,39 @@
+from typing import Union
+
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from database import Base
+from database.models.association import IdentifiedCreatedUpdated
 from database.models.link_check import LinkCheckModel
 from database.models.link_url_domain import LinkUrlDomainModel
+
+
+class Link(IdentifiedCreatedUpdated):
+    page_url: str
+    link_url: str
+    anchor: str
+    da: float | None = None
+    dr: float | None = None
+    price: float | None = None
+    contact: str | None = None
+    screenshot_url: str | None = None
+
+    link_url_domain_id: int | None = None
+    page_url_domain_id: int | None = None
+    user_id: int | None = None
+
+    link_checks: Union[list['LinkCheck'], None] = None
+    user: Union['User', None] = None
+    page_url_domain: Union['PageUrlDomain', None] = None
+    link_url_domain: Union['LinkUrlDomain', None] = None
+
+    link_check_last_id: int | None = None
+    link_check_last: Union['LinkCheck', None] = None
+    link_check_last_status: str | None = None
+    link_check_last_result_message: str | None = None
 
 
 class LinkModel(Base):
@@ -17,7 +45,7 @@ class LinkModel(Base):
 
     page_url = sa.Column(sa.String(2048), nullable=False, index=True)
     anchor = sa.Column(sa.String(512), nullable=False, index=True)
-    _link_url = sa.Column('link_url', sa.String(2048), nullable=False, index=True)
+    link_url = sa.Column(sa.String(2048), nullable=False, index=True)
     da = sa.Column(sa.Numeric(precision=10, scale=2), nullable=True)
     dr = sa.Column(sa.Numeric(precision=10, scale=2), nullable=True)
     price = sa.Column(sa.Numeric(precision=10, scale=2), nullable=True, index=True)
@@ -33,58 +61,14 @@ class LinkModel(Base):
     link_url_domain_id = sa.Column(sa.Integer, sa.ForeignKey('link_url_domain.id'))
     link_url_domain = relationship("LinkUrlDomainModel", back_populates='links')
 
-    link_checks = relationship("LinkCheckModel", cascade='all,delete', back_populates='link', primaryjoin='LinkModel.id==LinkCheckModel.link_id')
+    link_checks = relationship("LinkCheckModel", cascade='all,delete', back_populates='link',
+                               primaryjoin='LinkModel.id==LinkCheckModel.link_id')
 
     link_check_last_id = sa.Column(sa.Integer, sa.ForeignKey('link_check.id'))
-    link_check_last = relationship("LinkCheckModel", primaryjoin='LinkModel.link_check_last_id==LinkCheckModel.id')
+    link_check_last = relationship("LinkCheckModel", primaryjoin='LinkModel.link_check_last_id==LinkCheckModel.id',
+                                   post_update=True)
     link_check_last_status = sa.Column(sa.String(10), index=True)
     link_check_last_result_message = sa.Column(sa.String, index=True)
-
-    @hybrid_property
-    def link_url(self):
-        return self._link_url
-
-    @link_url.setter
-    def link_url(self, link_url: str):
-        self._link_url = link_url + '/' if isinstance(link_url, str) and not link_url.endswith('/') else link_url
-
-    # @hybrid_property
-    # def link_check_last(self):
-    #     link_check_last = None
-    #     if self.link_checks:
-    #         if self.link_check_last_id:
-    #             return [link_check for link_check in self.link_checks if link_check.id == self.link_check_last_id][0]
-    #         else:
-    #             link_checks_sorted = sorted(self.link_checks, key=lambda x: x.id)
-    #             link_check_last = link_checks_sorted[-1]
-    #     return link_check_last
-
-    # @link_check_last.expression
-    # def link_check_last(self):
-    #     return sa.select(LinkCheckModel.id).where(LinkCheckModel.link_id == id).order_by(desc(LinkCheckModel.id)).limit(1)
-
-
-    # @hybrid_property
-    # def link_check_last_result_message(self):
-    #     if self.link_check_last:
-    #         return self.link_check_last.result_message
-    #     else:
-    #         return None
-
-    # @link_check_last_result_message.expression
-    # def link_check_last_result_message(cls):
-    #     return sa.select(LinkCheckModel.result_message).where(LinkCheckModel.link_id == cls.id).order_by(desc(LinkCheckModel.id)).limit(1)
-
-    # @hybrid_property
-    # def link_check_last_status(self):
-    #     if self.link_check_last:
-    #         return self.link_check_last.status
-    #     else:
-    #         return None
-
-    # @link_check_last_status.expression
-    # def link_check_last_status(cls):
-    #     return sa.select(LinkCheckModel.status).where(LinkCheckModel.link_id == cls.id).order_by(desc(LinkCheckModel.id)).limit(1)
 
     @hybrid_property
     def link_check_last_created_at(self):
@@ -116,4 +100,4 @@ class LinkModel(Base):
         return f"Link with page_url: {self.page_url}"
 
     def __repr__(self):
-        return f"LinkModel(id={self.id}, link_url_domain={self.link_url_domain})"
+        return f"<LinkModel> (id={self.id}, link_url_domain={self.link_url_domain})"

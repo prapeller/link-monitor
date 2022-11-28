@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     BASE_DIR = Path(__file__).resolve().parent.parent
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / '.envs/.prod')
+    DEBUG = True if os.getenv('DEBUG', 'False') == 'True' else False
+    if DEBUG:
+        load_dotenv(BASE_DIR / '.envs/.local')
+    else:
+        load_dotenv(BASE_DIR / '.envs/.prod')
 
     SECRET_KEY: str = secrets.token_urlsafe(32)
 
@@ -37,10 +42,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv(
         'DATABASE_URL', f'{DB_SCHEME}://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
 
-    HTTP_PROXY_HOST: str = os.getenv('HTTP_PROXY_HOST', None)
-    HTTP_PROXY_PORT: int = int(os.getenv('HTTP_PROXY_PORT', None))
-    HTTPS_PROXY_HOST: str = os.getenv('HTTPS_PROXY_HOST', None)
-    HTTPS_PROXY_PORT: int = int(os.getenv('HTTPS_PROXY_PORT', None))
+    HTTP_PROXY: str = os.getenv('HTTP_PROXY', None)
+    HTTPS_PROXY: str = os.getenv('HTTPS_PROXY', None)
 
     BASE_URL: AnyHttpUrl = os.getenv('BASE_URL')
     KEYCLOAK_BASE_URL = os.getenv('KEYCLOAK_BASE_URL', 'localhost:8080/auth')
@@ -79,9 +82,20 @@ class Settings(BaseSettings):
         }
     }
 
-    PROXY_LIST = OrderedDict(
+    LINK_CHECKER_PROXY_ORDERED_DICT = OrderedDict(
         {
-            'Country': (HTTP_PROXY_HOST, HTTP_PROXY_PORT),
+            'DEU Germany': ('0.0.0.0', 1111),
+        }
+    )
+    DOMAIN_CHECKER_PROXY_ORDERED_DICT = OrderedDict(
+        {
+            'DEU Germany': ('0.0.0.0', 1111),
+            'CZE Czechia': ('0.0.0.0', 1111),
+            'NLD Netherlands': ('0.0.0.0', 1111),
+            'GRC Greece': ('0.0.0.0', 1111),
+            'MAR Morocco': ('0.0.0.0', 1111),
+            'FIN Finland': ('0.0.0.0', 1111),
+            'HKG Hong Kong': ('0.0.0.0', 1111),
         }
     )
 

@@ -139,4 +139,5 @@ dmypy.json
 config.ini
 /static/links/links_for_user*
 /static/links/links_filtered_for_user*
-/static/backups/
+/static/backups/backup_last
+/static/backups/uploaded_backup

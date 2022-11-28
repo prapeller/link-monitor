@@ -4,63 +4,72 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
 
 from celery_tasks import notify_users_all, fetch_user_from_keycloak
-from core.dependencies import get_current_user_dependency, get_db_dependency
+from core.dependencies import (
+    get_current_user_dependency,
+    get_session_dependency,
+    pagination_params_dependency
+)
 from core.enums import UserOrderByEnum, OrderEnum
-from database.crud import create, get, update, remove, get_query_all_active, get_query_all_inactive
+from core.exceptions import UnauthorizedException
+from database.crud import create, get, update, get_query_all_active
+from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
-from database.schemas.user import (UserReadTeamleadSerializer,
-                                   UserCreateSerializer,
-                                   UserUpdateSerializer,
-                                   UserReadSerializer,
-                                   UserUpdateTelegramSerializer,
-                                   UserReadTeamleadNameSerializer)
+from database.repository import SqlAlchemyRepository
+from database.schemas.user import (
+    UserUpdateSerializer,
+    UserCreateSerializer,
+    UserReadSerializer,
+    UserReadTeamleadSerializer,
+)
 from services.keycloak import KCAdmin
 
 router = fa.APIRouter()
 
 
-@router.get("/", response_model=list[UserReadTeamleadNameSerializer])
+@router.get("/", response_model=list[UserReadTeamleadSerializer])
 def users_list(
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         order_by: UserOrderByEnum = UserOrderByEnum.id,
         order: OrderEnum = OrderEnum.asc,
-        offset: int | None = None, limit: int | None = None,
+        pagination_params: dict = fa.Depends(pagination_params_dependency),
 ):
-    active_users_query = get_query_all_active(db, UserModel)
-    if order == OrderEnum.desc:
-        users = active_users_query.order_by(
-            desc(text(order_by.value))).offset(offset).limit(limit).all()
-    else:
-        users = active_users_query.order_by(
-            asc(text(order_by.value))).offset(offset).limit(limit).all()
-
+    """list all active users with optionals query params for being:
+    -ordered (default is ascending by id)
+    paginated (default all none)"""
+    users = SqlAlchemyRepository(session).get_all_active_ordered_limited_offset(
+        UserModel,
+        order,
+        order_by,
+        pagination_params.get('limit'),
+        pagination_params.get('offset'),
+    )
     return users
 
 
-@router.get("/inactive", response_model=list[UserReadTeamleadNameSerializer])
+@router.get("/inactive", response_model=list[UserReadTeamleadSerializer])
 def users_inactive_list(
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         order_by: UserOrderByEnum = UserOrderByEnum.id,
         order: OrderEnum = OrderEnum.asc,
-        offset: int | None = None, limit: int | None = None,
+        pagination_params: dict = fa.Depends(pagination_params_dependency),
 ):
-    inactive_users_query = get_query_all_inactive(db, UserModel)
-    if order == OrderEnum.desc:
-        users = inactive_users_query.order_by(
-            desc(text(order_by.value))).offset(offset).limit(limit).all()
-    else:
-        users = inactive_users_query.order_by(
-            asc(text(order_by.value))).offset(offset).limit(limit).all()
-
+    """list all inactive users ordered and paginated"""
+    users = SqlAlchemyRepository(session).get_all_inactive_ordered_limited_offset(
+        UserModel,
+        order,
+        order_by,
+        pagination_params.get('limit'),
+        pagination_params.get('offset'),
+    )
     return users
 
 
-@router.get("/my-linkbuilders", response_model=list[UserReadTeamleadNameSerializer])
+@router.get("/my-linkbuilders", response_model=list[UserReadTeamleadSerializer])
 def users_list_my_linkbuilders(
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
 ):
-    users = get_query_all_active(db, UserModel).filter_by(teamlead_id=current_user.id).all()
+    users = SqlAlchemyRepository(session).get_query_all_active(UserModel, teamlead_id=current_user.id).all()
     return users
 
 
@@ -71,12 +80,12 @@ def users_read_me(
     return current_user
 
 
-@router.get("/me-and-my-linkbuilders", response_model=list[UserReadTeamleadNameSerializer])
+@router.get("/me-and-my-linkbuilders", response_model=list[UserReadTeamleadSerializer])
 def users_list_me_and_my_linkbuilders(
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
 ):
-    users = get_query_all_active(db, UserModel).filter_by(teamlead_id=current_user.id).all()
+    users = SqlAlchemyRepository(session).get_query_all_active(UserModel, teamlead_id=current_user.id).all()
     users.append(current_user)
     users = list(set(users))
     return users
@@ -84,21 +93,59 @@ def users_list_me_and_my_linkbuilders(
 
 @router.get("/teamleads", response_model=list[UserReadSerializer])
 def users_list_teamleads(
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency)
 ):
-    users = get_query_all_active(db, UserModel).filter_by(is_teamlead=True).all()
+    users = SqlAlchemyRepository(session).get_query_all_active(UserModel).filter_by(is_teamlead=True).all()
     return users
 
 
 @router.get("/{user_id}", response_model=UserReadTeamleadSerializer)
 def users_read(
         user_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency)
 ):
-    user = get(db, UserModel, id=user_id)
+    user = SqlAlchemyRepository(session).get(UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
     return user
+
+
+@router.get("/linkers/all", response_model=list[UserReadTeamleadSerializer])
+def users_list(
+        db: Session = fa.Depends(get_session_dependency),
+        order_by: UserOrderByEnum = UserOrderByEnum.id,
+        order: OrderEnum = OrderEnum.asc,
+        offset: int | None = None, limit: int | None = None,
+):
+    active_users_query = get_query_all_active(db, UserModel) \
+        .filter(UserModel.is_seo == False)
+    if order == OrderEnum.desc:
+        users = active_users_query.order_by(
+            desc(text(order_by.value))).offset(offset).limit(limit).all()
+    else:
+        users = active_users_query.order_by(
+            asc(text(order_by.value))).offset(offset).limit(limit).all()
+
+    return users
+
+
+@router.get("/seo/all", response_model=list[UserReadTeamleadSerializer])
+def users_list(
+        db: Session = fa.Depends(get_session_dependency),
+        order_by: UserOrderByEnum = UserOrderByEnum.id,
+        order: OrderEnum = OrderEnum.asc,
+        offset: int | None = None, limit: int | None = None,
+):
+    active_users_query = get_query_all_active(db, UserModel) \
+        .filter(UserModel.is_seo == True)
+    if order == OrderEnum.desc:
+        users = active_users_query.order_by(
+            desc(text(order_by.value))).offset(offset).limit(limit).all()
+    else:
+        users = active_users_query.order_by(
+            asc(text(order_by.value))).offset(offset).limit(limit).all()
+
+    return users
 
 
 @router.post("/notify/all", status_code=fa.status.HTTP_201_CREATED)
@@ -117,11 +164,12 @@ def users_fetch_from_keycloack_me():
 def users_create(
         user_ser: UserCreateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency)
+        seo_link_url_domains_id: list[int] = fa.Body(default=[]),
+        db: Session = fa.Depends(get_session_dependency)
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can create other users')
+        raise UnauthorizedException
+
     user_ser.email = user_ser.email.lower()
     user_with_the_same_email = get(db, UserModel, email=user_ser.email)
     if user_with_the_same_email is not None:
@@ -137,26 +185,37 @@ def users_create(
         kc_admin.set_role_head(user)
     if user.is_teamlead:
         kc_admin.set_role_teamlead(user)
+    if user.is_seo:
+        kc_admin.set_role_seo(user)
+    if not user.is_head and not user.is_teamlead and not user.is_seo:
+        kc_admin.set_role_linkbuilbder(user)
+
+    if seo_link_url_domains_id:
+        seo_link_url_domains = db.query(LinkUrlDomainModel) \
+            .where(LinkUrlDomainModel.id.in_(seo_link_url_domains_id)).all()
+        user.seo_link_url_domains = seo_link_url_domains
+        db.commit()
     kc_admin.send_request_verify_email_and_reset_password(user)
     return user
 
 
-@router.put("/{user_id}", response_model=UserReadSerializer)
+@router.put("/{user_id}", response_model=UserReadTeamleadSerializer)
 async def users_update(
         user_id: int,
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency)
+        seo_link_url_domains_id: list[int] = fa.Body(default=[]),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can change other users')
-    user = get(db, UserModel, id=user_id)
+        raise UnauthorizedException
+
+    user: UserModel = get(db, UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
 
-    user_ser.email = user_ser.email.lower()
-    if user_ser.email != user.email:
+    if user_ser.email is not None and user_ser.email != user.email:
+        user_ser.email = user_ser.email.lower()
         user_with_the_same_email = get(db, UserModel, email=user_ser.email)
         if user_with_the_same_email is not None:
             raise fa.HTTPException(status_code=400, detail="Email already registered")
@@ -166,19 +225,24 @@ async def users_update(
     kc_admin.update_user_roles(user, user_ser)
 
     user = update(db, user, user_ser)
+
+    seo_link_url_domains = db.query(LinkUrlDomainModel) \
+        .where(LinkUrlDomainModel.id.in_(seo_link_url_domains_id)).all()
+    user.seo_link_url_domains = seo_link_url_domains
+    db.commit()
     return user
 
 
-@router.put("/send-request-verify-email-and-reset-password/{user_id}", response_model=UserReadSerializer)
+@router.put("/send-request-verify-email-and-reset-password/{user_id}", response_model=UserReadTeamleadSerializer)
 async def users_update(
         user_id: int,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency)
+        session: Session = fa.Depends(get_session_dependency)
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can send "verify" requests to other users')
-    user = get(db, UserModel, id=user_id)
+        raise UnauthorizedException
+
+    user = SqlAlchemyRepository(session).get(UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
 
@@ -190,20 +254,20 @@ async def users_update(
 @router.delete("/{user_id}")
 async def users_deactivate(
         user_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can deactivate other users')
-    user = get(db, UserModel, id=user_id)
+        raise UnauthorizedException
+
+    user = SqlAlchemyRepository(session).get(UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
 
     kc_admin = KCAdmin()
     kc_admin.deactivate_user(user)
     user.is_active = False
-    db.commit()
+    session.commit()
 
     return {'message': 'ok'}
 
@@ -211,14 +275,13 @@ async def users_deactivate(
 @router.post("/activate/{user_id}")
 async def users_activate(
         user_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can activate other users')
+        raise UnauthorizedException
 
-    user = get(db, UserModel, id=user_id)
+    user = SqlAlchemyRepository(session).get(UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
     if user.is_active:
@@ -228,35 +291,35 @@ async def users_activate(
     kc_admin = KCAdmin()
     kc_admin.activate_user(user)
     user.is_active = True
-    db.commit()
+    session.commit()
     return {'message': 'ok'}
 
 
 @router.delete("/remove/{user_id}")
 async def users_remove(
         user_id: int,
-        db: Session = fa.Depends(get_db_dependency),
+        session: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
 ):
     if not current_user.is_head:
-        raise fa.HTTPException(status_code=fa.status.HTTP_401_UNAUTHORIZED,
-                               detail='Only head user can remove other users')
+        raise UnauthorizedException
 
-    user = get(db, UserModel, id=user_id)
+    repo = SqlAlchemyRepository(session)
+    user = repo.get(UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
 
     kc_admin = KCAdmin()
     kc_admin.remove_user(user)
-    remove(db, UserModel, user_id)
+    repo.remove(UserModel, user_id)
     return {'message': 'ok'}
 
 
-@router.put("/me/set-telegram-id", response_model=UserReadSerializer)
+@router.put("/me/set-telegram-id", response_model=UserReadTeamleadSerializer)
 def users_me_set_telegram_id(
-        user_ser: UserUpdateTelegramSerializer,
+        user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     set telegram id to current user
@@ -267,11 +330,11 @@ def users_me_set_telegram_id(
     return current_user
 
 
-@router.put("/me/enable-disable-notification-telegram", response_model=UserReadSerializer)
+@router.put("/me/enable-disable-notification-telegram", response_model=UserReadTeamleadSerializer)
 def users_me_enable_disable_notification_telegram(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     update current_user.is_accepting_telegram
@@ -285,11 +348,11 @@ def users_me_enable_disable_notification_telegram(
     return current_user
 
 
-@router.put("/me/enable-disable-notification-email", response_model=UserReadSerializer)
+@router.put("/me/enable-disable-notification-email", response_model=UserReadTeamleadSerializer)
 def users_me_enable_disable_notification_email(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_db_dependency),
+        db: Session = fa.Depends(get_session_dependency),
 ):
     """
     update current_user.is_accepting_emails

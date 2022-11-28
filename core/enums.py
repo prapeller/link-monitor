@@ -1,17 +1,22 @@
 from enum import Enum
 
 
-class OrderEnum(Enum):
+class StartModeEnum(str, Enum):
+    httpx = 'httpx'
+    playwright = 'playwright'
+
+
+class OrderEnum(str, Enum):
     asc = 'asc'
     desc = 'desc'
 
 
-class UserOrderByEnum(Enum):
+class UserOrderByEnum(str, Enum):
     id = 'id'
     created_at = 'created_at'
 
 
-class LinkCheckOrderByEnum(Enum):
+class LinkCheckOrderByEnum(str, Enum):
     id = 'id'
     created_at = 'created_at'
 
@@ -37,10 +42,29 @@ class LinkOrderByEnum(str, Enum):
         return self.value
 
 
-class LinkStatusEnum(Enum):
+class PUDomainOrderByEnum(str, Enum):
+    name = 'name'
+    link_da_last = 'link_da_last'
+    link_dr_last = 'link_dr_last'
+    link_created_at_last = 'link_created_at_last'
+    link_price_avg = 'link_price_avg'
+
+    def __str__(self):
+        return self.value
+
+
+class LinkStatusEnum(str, Enum):
     green = 'green'
     red = 'red'
     yellow = 'yellow'
+
+    def __str__(self):
+        return self.value
+
+
+class TagRefpropertyEnum(str, Enum):
+    language = 'language'
+    country = 'country'
 
     def __str__(self):
         return self.value
