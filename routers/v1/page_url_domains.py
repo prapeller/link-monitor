@@ -6,7 +6,6 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from celery_tasks import recreate_domains_task
 from core.dependencies import (
     get_session_dependency,
     period_params_dependency,
@@ -34,7 +33,11 @@ from database.schemas.page_url_domain import (
     PUDomainReadLastLinkManyTotalCountResponseModel,
     PUDomainReadLastLinkSerializer, PageUrlDomainUpdateSerializer
 )
-from services.domain_checker import PageUrlDomainChecker, get_domain_name_from_url, check_pudomains_with_similarweb
+from services.domain_checker.domain_checker import (
+    PageUrlDomainChecker,
+    get_domain_name_from_url
+)
+from services.domain_checker.celery_tasks import check_pudomains_with_similarweb
 
 router = fa.APIRouter()
 
@@ -141,26 +144,11 @@ async def page_url_domains_check_with_similarweb(
 ):
     if sync_mode:
         pudomain_checker = PageUrlDomainChecker(pudomain_id_list)
-        await pudomain_checker.check_pudomains_country_and_language_tags()
+        await pudomain_checker.run_check()
         return {'message': 'ok'}
     else:
         task = check_pudomains_with_similarweb.delay(id_list=pudomain_id_list)
         return JSONResponse(content={"task_id": task.task_id})
-
-
-@router.put(
-    "/recreate-domains",
-)
-async def recreate_domains(
-        # session: Session = fa.Depends(get_session_dependency),
-):
-    """
-    recreates for all links:
-    -link_url_domain
-    -page_url_domain (along with updating /.link_da_last /.link_dr_last /.link_created_at_last /.link_price_avg)
-    """
-    task = recreate_domains_task.delay()
-    return {"task_id": task.task_id}
 
 
 @router.put("/{pud_id}",
@@ -179,7 +167,7 @@ async def page_url_domains_update(
     if page_url_domain is None:
         raise fa.HTTPException(status_code=404, detail="PageUrlDomain not found")
     tags_id = pud_ser.tags_id
-    tags = repo.get_many(TagModel, tags_id)
+    tags = repo.get_many_by_id(TagModel, tags_id)
     repo.update(page_url_domain, pud_ser)
     page_url_domain.tags = tags
     session.commit()

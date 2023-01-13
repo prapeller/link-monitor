@@ -68,3 +68,15 @@ class TagRefpropertyEnum(str, Enum):
 
     def __str__(self):
         return self.value
+
+
+class TaskContentStatusEnum(str, Enum):
+    sent_to_teamlead = 'sent to teamlead'
+    sent_to_author = 'sent to author'
+    text_written = 'text written'
+    in_edit = 'in edit'
+    confirmed = 'confirmed'
+    closed = 'closed'
+
+    def __str__(self):
+        return self.value

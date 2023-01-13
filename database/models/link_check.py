@@ -56,6 +56,7 @@ class LinkCheckModel(Base):
     redirect_url = sa.Column(sa.String(2048), index=True)
     link_url_others_count = sa.Column(sa.Integer)
     status = sa.Column(sa.String(10), index=True)
+    check_mode = sa.Column(sa.String(10), nullable=True, index=True)
 
     link_id = sa.Column(sa.Integer, sa.ForeignKey('link.id'))
     link = relationship("LinkModel", cascade='all,delete', back_populates="link_checks",

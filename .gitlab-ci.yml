@@ -21,5 +21,5 @@ deploy:
   needs: ['build']
   script:
     - docker rm -f $CI_PROJECT_NAME || true
-    - docker run -d -e TZ=Europe/Moscow --restart unless-stopped -v /opt/app/app.backend/.envs/.prod:/app/.envs/.prod -v /opt/app/app.backend/log:/app/log --name $CI_PROJECT_NAME -p1234:8000 -p12345:1234 $CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA
+    - docker run -d -e TZ=Europe/Riga --restart unless-stopped -v /opt/report/report.backend/.envs/.prod:/app/.envs/.prod -v /opt/report/report.backend/log:/app/log --name $CI_PROJECT_NAME -p5006:8000 -p55556:5555 $CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA
 

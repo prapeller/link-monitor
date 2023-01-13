@@ -1,16 +1,29 @@
+import logging
+
 import fastapi as fa
 import openpyxl
 from pydantic.error_wrappers import ValidationError
 
+from celery_app import celery_app
 from core.exceptions import NotExcelException, WhileUploadingArchiveException
-from services.domain_checker import get_domain_name_from_url, check_pudomains_with_similarweb
 from database import SessionLocal
-from database.crud import get, create_user_from_keycloak, get_or_create_by_name
+from database.crud import get, create_user_from_keycloak, get_or_create_by_name, get_or_create_many_links_from_archive
+from database.models import init_models
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.page_url_domain import PageUrlDomainModel
 from database.models.user import UserModel
 from database.schemas.link import LinkCreateWithDomainsSerializer
-from services.keycloak import KCAdmin
+from services.domain_checker.celery_tasks import check_pudomains_with_similarweb
+from services.domain_checker.domain_checker import get_domain_name_from_url
+from services.keycloak.keycloak import KCAdmin
+from services.link_checker.celery_tasks import check_links_from_list
+
+logger = logging.getLogger(name='file_handler')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s ")
+file_handler = logging.FileHandler(f'services/file_handler/file_handler.log', encoding='utf-8')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 
 def iterfile(filepath):
@@ -60,21 +73,19 @@ def check_file_on_duplicates(filepath) -> list[str]:
     for link in ws_links:
         if ws_links.count(link) > 1:
             ws_duplicated_links.append(link)
-            print(f'found duplicate link: {link}')
 
     if ws_duplicated_links:
         ws_duplicated_links = list(set(ws_duplicated_links))
-        print(f'duplicated links: {ws_duplicated_links}')
 
         for duplicated_link in ws_duplicated_links:
             row_numbers = get_duplicated_link_row_numbers(ws_links, duplicated_link)
-            error_string = f'error at row numbers {row_numbers}: link with ' \
-                           f'link_url={duplicated_link[0]}, ' \
-                           f'anchor={duplicated_link[1]}, ' \
-                           f'page_url={duplicated_link[2]} ' \
-                           f'is duplicated in file'
-            print(error_string)
-            validation_errors.append(error_string)
+            error = f'error at row numbers {row_numbers}: link with ' \
+                    f'link_url={duplicated_link[0]}, ' \
+                    f'anchor={duplicated_link[1]}, ' \
+                    f'page_url={duplicated_link[2]} ' \
+                    f'is duplicated in file'
+            logger.warning(f'check_file_on_duplicates({filepath=:}), appending validation error {error}')
+            validation_errors.append(error)
 
     return validation_errors
 
@@ -107,8 +118,10 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
             link_url, anchor, page_url = str(link_url).strip(), str(anchor).strip(), str(page_url).strip()
 
             if not all((page_url, link_url, anchor, da, dr, price, contact)):
-                validation_errors.append(
-                    f'error at row number {num}: there are empty cells, only screenshot_url can be empty')
+                error = f'error at row number {num}: there are empty cells, only screenshot_url can be empty'
+                logger.warning(f'get_link_create_ser_list_from_file({filepath=:}, {current_user_id=:}, {mode=:}), '
+                               f'appending validation error {error}')
+                validation_errors.append(error)
                 continue
 
             if not link_url.endswith('/'):
@@ -140,8 +153,9 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
                 link_create_ser_list.append(link_create_ser)
             except ValidationError as e:
                 error = f'error at row number {num}: {e}'
+                logger.warning(f'get_link_create_ser_list_from_file({filepath=:}, {current_user_id=:}, {mode=:}), '
+                               f'appending validation error {error}')
                 validation_errors.append(error)
-                print(error)
 
     elif mode == 'from_archive':
         kc_admin = KCAdmin()
@@ -158,8 +172,10 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
             link_url, anchor, page_url = str(link_url).strip(), str(anchor).strip(), str(page_url).strip()
 
             if not all((page_url, link_url, anchor)):
-                validation_errors.append(
-                    f'error at row number {num}: page_url/link_url/anchor are mandatory cells')
+                error = f'error at row number {num}: page_url/link_url/anchor are mandatory cells'
+                logger.warning(f'get_link_create_ser_list_from_file({filepath=:}, {current_user_id=:}, {mode=:}), '
+                               f'appending validation error {error}')
+                validation_errors.append(error)
                 continue
 
             if not link_url.endswith('/'):
@@ -193,8 +209,9 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
                 link_create_ser_list.append(link_create_ser)
             except ValidationError as e:
                 error = f'error at row number {num}: {e}'
+                logger.warning(f'get_link_create_ser_list_from_file({filepath=:}, {current_user_id=:}, {mode=:}), '
+                               f'appending validation error {error}')
                 validation_errors.append(error)
-                print(error)
 
     if validation_errors:
         if mode is None:
@@ -205,3 +222,22 @@ def get_link_create_ser_list_from_file(filepath, current_user_id: int, mode=None
                                                  errors=validation_errors,
                                                  user=current_user)
     return link_create_ser_list
+
+
+@celery_app.task(name='create_links_from_uploaded_file_archive')
+def create_links_from_uploaded_file_archive(uploaded_file_path, current_user_id):
+    init_models()
+    session = SessionLocal()
+    current_user = get(session, UserModel, id=current_user_id)
+    duplicate_validation_errors = check_file_on_duplicates(filepath=uploaded_file_path)
+    if duplicate_validation_errors:
+        raise WhileUploadingArchiveException(message='duplicates in archive were found',
+                                             errors=duplicate_validation_errors,
+                                             user=current_user)
+    link_create_ser_list = get_link_create_ser_list_from_file(filepath=uploaded_file_path,
+                                                              current_user_id=current_user.id,
+                                                              mode='from_archive')
+    links = get_or_create_many_links_from_archive(session, link_create_ser_list)
+    links_id_list = [str(link.id) for link in links]
+    check_links_from_list.delay(id_list=links_id_list)
+    session.close()

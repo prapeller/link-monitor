@@ -68,9 +68,13 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND')
     CELERY_TIMEZONE = os.getenv('CELERY_TIMEZONE', 'Europe/Moscow')
     CELERY_BEAT_SCHEDULE = {
-        'check_links_all': {
-            'task': 'check_links_all',
+        'check_every_day': {
+            'task': 'check_every_day',
             'schedule': crontab(hour=1, minute=0, day_of_week='1,2,3,4,5,6,0'),
+        },
+        'check_monthly': {
+            'task': 'check_monthly',
+            'schedule': crontab(hour=5, minute=0, day_of_month='1'),
         },
         'notify_users': {
             'task': 'notify_users_all',
@@ -99,7 +103,8 @@ class Settings(BaseSettings):
         }
     )
 
-    LOOP_LINK_CHUNK_SIZE = 500
+    LINK_CHECKER_CHUNK_SIZE = 100
     PLAYWRIGHT_LINK_CHUNK_SIZE = 5
+    OLD_LINKCHECKS_DAYS = 30
 
 settings = Settings()

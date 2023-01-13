@@ -1,3 +1,4 @@
+import logging
 import smtplib
 import traceback
 from email.message import EmailMessage
@@ -9,6 +10,13 @@ from core.config import settings
 from database.models.link import LinkModel
 from database.models.link_check import LinkCheckModel
 from database.models.user import UserModel
+
+logger = logging.getLogger(name='notificator')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s ")
+file_handler = logging.FileHandler(f'services/notificator/notificator.log', encoding='utf-8')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 SSL_EXPIRATION_DAYS = 30
 
@@ -125,9 +133,9 @@ def send_telegram(user: UserModel, message: str) -> None:
         requests.post(
             "https://api.telegram.org/bot746467909:AAHxI9VDVPWEA8Oe_IE9e67r3C6oi7631_4/sendMessage",
             data=data)
-        print(f"Successfully sent telegram to {user}.")
+        logger.info(f"Successfully sent telegram to {user}.")
     except Exception:
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
 
 def send_email(user: UserModel, message):
@@ -145,9 +153,9 @@ def send_email(user: UserModel, message):
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as smtp:
             smtp.send_message(msg)
-            print(f"Successfully sent email to {user}.")
+            logger.info(f"Successfully sent email to {user}.")
     except Exception:
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
 
 def notify_user(db: Session, user: UserModel):
@@ -170,15 +178,15 @@ def notify_user(db: Session, user: UserModel):
     if user.is_accepting_telegram and user.telegram_id:
         send_telegram(user, message)
     else:
-        print(f'Cant send telegram message to {user}, '
-              f'user.telegram_id: {user.telegram_id}, '
-              f'user.is_accepting_telegram: {user.is_accepting_telegram}')
+        logger.warning(f'Cant send telegram message to {user}, '
+                       f'user.telegram_id: {user.telegram_id}, '
+                       f'user.is_accepting_telegram: {user.is_accepting_telegram}')
 
     if user.is_accepting_emails:
         send_email(user, message)
     else:
-        print(f"Can't send email to {user}, "
-              f"user.is_accepting_emails: {user.is_accepting_emails}")
+        logger.warning(f"Can't send email to {user}, "
+                       f"user.is_accepting_emails: {user.is_accepting_emails}")
 
 
 def notify_users(db: Session, users: list[UserModel]):

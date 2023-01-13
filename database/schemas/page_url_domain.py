@@ -6,6 +6,7 @@ import pydantic as pd
 
 class PageUrlDomainUpdateSerializer(pd.BaseModel):
     name: str | None = None
+    last_month_visits: str | None = None
     tags_id: list[int] | None = []
 
 

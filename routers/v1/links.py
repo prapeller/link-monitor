@@ -8,13 +8,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from celery_tasks import (
-    check_link_by_id,
-    check_links_from_list,
-    create_links_from_uploaded_file_archive,
-    check_links_per_year, check_links_from_list_playwright,
-    set_link_check_last_ids, check_links_all
-)
 from core.config import settings
 from core.dependencies import (
     get_session_dependency,
@@ -54,8 +47,22 @@ from database.schemas.link import (
     LinkReadTaskIdResponseModel,
     LinkReadManyTotalCountResponseModel
 )
-from services.file_handler import iterfile, get_link_create_ser_list_from_file
-from services.link_checker import LinkChecker
+from services.file_handler.file_handler import (
+    iterfile,
+    get_link_create_ser_list_from_file,
+    create_links_from_uploaded_file_archive
+)
+from services.link_checker.link_checker import (
+    LinkChecker
+)
+from services.link_checker.celery_tasks import (
+    check_link_by_id,
+    check_links_from_list,
+    check_links_all,
+    check_links_from_list_playwright,
+    check_links_per_year,
+    check_every_day
+)
 
 router = fa.APIRouter()
 
@@ -299,19 +306,6 @@ def tasks_check_links_my(
 
 
 @router.post(
-    "/set-link-check-last-ids/all",
-    status_code=fa.status.HTTP_201_CREATED,
-)
-def links_set_link_check_last_ids(
-        db: Session = fa.Depends(get_session_dependency),
-):
-    links = db.query(LinkModel).all()
-    links_id_list = [link.id for link in links]
-    task = set_link_check_last_ids.delay(id_list=links_id_list)
-    return {'task_id': f'{task.task_id}'}
-
-
-@router.post(
     "/check-year",
     status_code=fa.status.HTTP_201_CREATED,
 )
@@ -354,6 +348,22 @@ def links_check_all():
 
 
 @router.post(
+    "/check-every-day",
+    response_model=LinkReadMessageTaskIdResponseModel,
+    status_code=fa.status.HTTP_201_CREATED,
+)
+def links_check_every_day(
+        sync_mode: bool = fa.Query(False),
+):
+    if sync_mode:
+        check_every_day()
+        return {'message': 'ok'}
+    else:
+        task = check_every_day.delay()
+        return JSONResponse(content={'message': 'ok', "task_id": task.task_id})
+
+
+@router.post(
     "/my/upload-from-file",
     response_model=Union[LinkReadManyTaskIdResponseModel, dict],
     status_code=fa.status.HTTP_201_CREATED,
@@ -384,11 +394,11 @@ async def links_create_my_from_file(
 
     if links:
         if sync_mode:
-            for link_chunk in chunks_generator(links, settings.LOOP_LINK_CHUNK_SIZE):
+            for link_chunk in chunks_generator(links, settings.LINK_CHECKER_CHUNK_SIZE):
                 linkchecker = LinkChecker(db)
                 print(linkchecker)
                 await linkchecker.check_links(links=link_chunk)
-                print(f'LOOP_LINK_CHUNK_SIZE: {settings.LOOP_LINK_CHUNK_SIZE}\n\n\n')
+                print(f'LINK_CHECKER_CHUNK_SIZE: {settings.LINK_CHECKER_CHUNK_SIZE}\n\n\n')
             return {'message': 'ok'}
         else:
             links_id_list = [str(link.id) for link in links]

@@ -1,11 +1,16 @@
 import asyncio
+import logging
 import ssl
 import subprocess
-from datetime import datetime
 
 import httpx
+import psutil
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
+from playwright.async_api import (
+    async_playwright,
+    TimeoutError as PlaywrightTimeoutError,
+    Error as PlaywrightError
+)
 
 from core.config import settings
 from core.exceptions import CheckWithPlaywrightException
@@ -23,11 +28,18 @@ from database.crud import create_many
 from database.models.link import LinkModel
 from database.models.link_check import LinkCheckModel
 from database.schemas.link_check import LinkCheckCreateSerializer
-from services.domain_checker import (
+from services.domain_checker.celery_tasks import check_pudomains_with_similarweb
+from services.domain_checker.domain_checker import (
     get_domain_name_from_url,
-    recreate_domains,
-    check_pudomains_with_similarweb
+    recreate_domains
 )
+
+logger = logging.getLogger(name='link_checker')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s ")
+file_handler = logging.FileHandler(f'services/link_checker/link_checker.log', encoding='utf-8')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 
 def get_status_and_message(
@@ -97,9 +109,9 @@ class LinkChecker:
 
     def __repr__(self):
         return f"""<LinkChecker> (id: {id(self)}
-        lcs_list: {self.lcs_list}
-        check_with_proxies_link_ids: {self.check_with_proxies_link_ids}
-        check_with_pw_link_ids: {self.check_with_pw_link_ids})"""
+        {self.lcs_list=:}
+        {self.check_with_proxies_link_ids:=}
+        {self.check_with_pw_link_ids:=})"""
 
     async def check_links(
             self, links: list[LinkModel],
@@ -173,13 +185,13 @@ class LinkChecker:
 
         check_with_pw_links = self.session.query(LinkModel).filter(LinkModel.id.in_(self.check_with_pw_link_ids)).all()
         self.check_with_pw_link_ids = []
+
         for link_chunk in chunks_generator(check_with_pw_links, chunk_size=settings.PLAYWRIGHT_LINK_CHUNK_SIZE):
-            lcs_list_new = await self.get_linkcheck_ser_list(
-                link_chunk,
-                mode='playwright', proxies_dict=current_proxies_dict, visit_from=current_visit_from
-            )
-            print(f'time: {datetime.now()}\n'
-                  f'PLAYWRIGHT_LINK_CHUNK_SIZE: {settings.PLAYWRIGHT_LINK_CHUNK_SIZE}...\n\n\n')
+            logger.debug(
+                f'LinkChecker.check_links_with_playwright: PLAYWRIGHT_LINK_CHUNK_SIZE: {settings.PLAYWRIGHT_LINK_CHUNK_SIZE}')
+            lcs_list_new = await self.get_linkcheck_ser_list(link_chunk, mode='playwright',
+                                                             proxies_dict=current_proxies_dict,
+                                                             visit_from=current_visit_from)
             self.lcs_list.extend(lcs_list_new)
 
     async def get_linkcheck_ser_list(self,
@@ -201,9 +213,8 @@ class LinkChecker:
 
     async def get_link_check_ser(self, client: httpx.AsyncClient, link: LinkModel,
                                  mode=None, proxies_dict=None, visit_from=None):
-        start_time = datetime.now()
-        print(f'started getting soup data, mode: {mode}, from: {visit_from}, '
-              f'link.id: {link.id}, link.page_url {link.page_url}')
+        logger.debug(
+            f'LinkChecker.get_link_check_ser(link: {link.id}, mode: {mode}, proxies_dict: {proxies_dict}, visit_from: {visit_from}')
 
         response_code = None
         redirect_codes_list = []
@@ -220,7 +231,7 @@ class LinkChecker:
         rel_has_sponsored = False
         meta_robots_has_noindex = False
         meta_robots_has_nofollow = False
-        response_text = ''
+        page_content = ''
 
         link_url_without_https = remove_https(link.link_url)
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -235,9 +246,10 @@ class LinkChecker:
                 pass
             else:
                 redirect_codes_list.append(response_status)
+            print(f'formed {redirect_codes_list=:}')
 
         try:
-            # get response_code and response_text with playwright
+            # get response_code and page_content with playwright
             if mode == 'playwright':
                 async with async_playwright() as p:
                     browser = await p.webkit.launch(
@@ -247,18 +259,20 @@ class LinkChecker:
                     page = await browser.new_page(ignore_https_errors=True)
                     page.on("response", lambda response: set_response_code(response.status))
                     page.on("response", lambda response: append_redirect_codes_list(response.status))
-                    print('playwright working...')
+                    logger.debug(
+                        f'playwright working on {link.id=:}, {link.page_url=:}, RAM memory % used: {psutil.virtual_memory()[2]}')
                     await page.goto(link.page_url)
                     await page.wait_for_timeout(15000)
-                    response_text = await page.content()
+                    page_content = await page.content()
+                    logger.debug(
+                        f'playwright closing {link.id=:}, {link.page_url=:}, RAM memory % used: {psutil.virtual_memory()[2]}')
                     await browser.close()
 
-            # get response_code and response_text with httpx.AsyncClient
+            # get response_code and page_content with httpx.AsyncClient
             else:
                 request = client.build_request("GET", link.page_url, headers=headers)
                 while request is not None:
                     response = await client.send(request)
-                    start_time = datetime.now()
                     response_code = response.status_code
                     redirect_codes_list.append(response_code)
                     if len(redirect_codes_list) > 20:
@@ -266,12 +280,12 @@ class LinkChecker:
                     if response.next_request:
                         redirect_url = str(response.next_request.url)
                     try:
-                        response_text = response.content.decode('utf-8', 'strict')
+                        page_content = response.content.decode('utf-8', 'strict')
                     except UnicodeDecodeError:
                         try:
-                            response_text = response.content.decode('latin-1', 'strict')
+                            page_content = response.content.decode('latin-1', 'strict')
                         except UnicodeDecodeError:
-                            response_text = response.content.decode('utf-8', 'ignore')
+                            page_content = response.content.decode('utf-8', 'ignore')
 
                     request = response.next_request
                 if response_code == 403 or response_code == 503:
@@ -279,7 +293,7 @@ class LinkChecker:
                                                        response_code=response_code)
 
             # getting soup data
-            soup = BeautifulSoup(response_text, 'html.parser')
+            soup = BeautifulSoup(page_content, 'html.parser')
             for m in soup.find_all('meta'):
                 m_name = m.get('name')
                 if m_name == 'robots':
@@ -345,7 +359,7 @@ class LinkChecker:
                     not href_is_found
             ):
                 raise CheckWithPlaywrightException(
-                    f'response code: 200, but havn\'t found project domain or acceptor, trying to load js script first...',
+                    f'response code: 200, but havn\'t found project domain or acceptor, trying to load js script first',
                     response_code=response_code)
 
             status, result_message = get_status_and_message(
@@ -363,29 +377,29 @@ class LinkChecker:
                 mode=mode,
                 visit_from=visit_from)
 
+        except (CheckWithPlaywrightException, ssl.SSLError, ssl.SSLCertVerificationError) as e:
+            status = 'red'
+            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}, {mode=:}, {visit_from=:}"
+            self.check_with_pw_link_ids.append(link.id)
+            logger.error(result_message)
         except httpx.TimeoutException as e:
             status = 'red'
-            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} waited({client.timeout.read} sec) {str(e)}\nmode: {mode}\nvisit_from: {visit_from}\n"
+            result_message = f"error: httpx.TimeoutException, {str(e)}, {mode=:}, {visit_from=:}"
             self.check_with_proxies_link_ids.append(link.id)
-            print(result_message)
-        except (ssl.SSLError, ssl.SSLCertVerificationError) as e:
+            logger.error(result_message)
+        except (PlaywrightError, PlaywrightTimeoutError) as e:
             status = 'red'
-            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}\nmode: {mode}\nvisit_from: {visit_from}\n"
+            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}, {mode=:}, {visit_from=:}"
             self.check_with_pw_link_ids.append(link.id)
-            print(result_message)
-        except CheckWithPlaywrightException as e:
-            status = 'red'
-            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}\nmode: {mode}\nvisit_from: {visit_from}\n"
-            self.check_with_pw_link_ids.append(link.id)
-            print(result_message)
+            logger.error(result_message)
         except Exception as e:
             status = 'red'
-            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}\nmode: {mode}\nvisit_from: {visit_from}\n"
-            print(result_message)
+            result_message = f"error: {str(e.__class__).replace('<', '').replace('>', '')} {str(e)}, {mode=:}, {visit_from=:}"
+            logger.error(result_message)
 
         link_check_ser = LinkCheckCreateSerializer(
             link_id=link.id,
-            # response_text=response_text if mode == 'playwright' else None,
+            # page_content=page_content if mode == 'playwright' else None,
             response_code=response_code,
             redirect_codes_list=str(redirect_codes_list),
             redirect_url=redirect_url,
@@ -399,12 +413,10 @@ class LinkChecker:
             meta_robots_has_noindex=meta_robots_has_noindex,
             meta_robots_has_nofollow=meta_robots_has_nofollow,
             status=status,
-            result_message=result_message
+            result_message=result_message,
+            check_mode=mode
         )
 
-        finish_time = datetime.now()
-        print(
-            f'finished getting soup data, link.id: {link.id}, executing time: {finish_time - start_time}')
         return link_check_ser
 
     def remove_errored_from_lcs_list(self, error_link_ids):

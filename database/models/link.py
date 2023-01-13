@@ -69,17 +69,8 @@ class LinkModel(Base):
                                    post_update=True)
     link_check_last_status = sa.Column(sa.String(10), index=True)
     link_check_last_result_message = sa.Column(sa.String, index=True)
-
-    @hybrid_property
-    def link_check_last_created_at(self):
-        if self.link_check_last:
-            return self.link_check_last.created_at
-        else:
-            return None
-
-    @link_check_last_created_at.expression
-    def link_check_last_created_at(cls):
-        return sa.select(LinkCheckModel.created_at).where(LinkCheckModel.id == cls.link_check_last_id)
+    link_check_last_check_mode = sa.Column(sa.String(10), nullable=True, index=True)
+    link_check_last_created_at = sa.Column(sa.DateTime, nullable=True)
 
     @hybrid_property
     def link_url_domain_name(self):
@@ -97,7 +88,7 @@ class LinkModel(Base):
     )
 
     def __str__(self):
-        return f"Link with page_url: {self.page_url}"
+        return f"Link (id={self.id}, page_url={self.page_url})"
 
     def __repr__(self):
         return f"<LinkModel> (id={self.id}, link_url_domain={self.link_url_domain})"

@@ -38,9 +38,12 @@ oauth2_scheme = OidcResourceServer(
 
 
 async def get_current_user_dependency(session: Session = fa.Depends(get_session_dependency),
-                                      keycloak_data: dict = fa.Security(oauth2_scheme)) -> UserModel:
-    current_user = SqlAlchemyRepository(session).get(UserModel, email=keycloak_data.get('email'))
-    return current_user
+                                      keycloak_data: dict = fa.Security(oauth2_scheme)) -> UserModel | None:
+    try:
+        current_user = SqlAlchemyRepository(session).get(UserModel, email=keycloak_data.get('email'))
+        return current_user
+    except fa.HTTPException:
+        return None
 
 
 async def get_current_user_roles_dependency(keycloak_data: dict = fa.Security(oauth2_scheme)) -> list:

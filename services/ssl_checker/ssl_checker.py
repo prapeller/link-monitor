@@ -1,8 +1,16 @@
+import logging
 import subprocess
 import traceback
 from datetime import datetime
 
 from core.config import settings
+
+logger = logging.getLogger(name='ssl_checker')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s ")
+file_handler = logging.FileHandler(f'services/ssl_checker/ssl_checker.log', encoding='utf-8')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 
 def get_ssl_expiration_date(hostname):
@@ -24,5 +32,5 @@ def get_ssl_expiration_date(hostname):
         return ssl_expiration_date
 
     except Exception:
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         return None

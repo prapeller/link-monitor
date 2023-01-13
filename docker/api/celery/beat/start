@@ -3,4 +3,4 @@
 set -o errexit
 set -o nounset
 
-celery -A celery_tasks beat
+celery -A celery_app beat

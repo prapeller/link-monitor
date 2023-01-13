@@ -1,9 +1,9 @@
 import fastapi as fa
-from sqlalchemy import desc, asc
+from sqlalchemy import desc, asc, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
 
-from celery_tasks import notify_users_all, fetch_user_from_keycloak
+from services.notificator.celery_tasks import notify_users_all
 from core.dependencies import (
     get_current_user_dependency,
     get_session_dependency,
@@ -19,9 +19,10 @@ from database.schemas.user import (
     UserUpdateSerializer,
     UserCreateSerializer,
     UserReadSerializer,
-    UserReadTeamleadSerializer,
+    UserReadTeamleadSerializer, UserReadContentTeamleadSerializer,
 )
-from services.keycloak import KCAdmin
+from services.keycloak.keycloak import KCAdmin
+from services.keycloak.celery_tasks import fetch_user_from_keycloak
 
 router = fa.APIRouter()
 
@@ -95,7 +96,10 @@ def users_list_me_and_my_linkbuilders(
 def users_list_teamleads(
         session: Session = fa.Depends(get_session_dependency)
 ):
-    users = SqlAlchemyRepository(session).get_query_all_active(UserModel).filter_by(is_teamlead=True).all()
+    users = SqlAlchemyRepository(session) \
+        .get_query_all_active(UserModel) \
+        .filter(UserModel.is_teamlead == True) \
+        .all()
     return users
 
 
@@ -111,14 +115,18 @@ def users_read(
 
 
 @router.get("/linkers/all", response_model=list[UserReadTeamleadSerializer])
-def users_list(
-        db: Session = fa.Depends(get_session_dependency),
+def users_list_linkers(
+        session: Session = fa.Depends(get_session_dependency),
         order_by: UserOrderByEnum = UserOrderByEnum.id,
         order: OrderEnum = OrderEnum.asc,
         offset: int | None = None, limit: int | None = None,
 ):
-    active_users_query = get_query_all_active(db, UserModel) \
-        .filter(UserModel.is_seo == False)
+    active_users_query = get_query_all_active(session, UserModel) \
+        .filter(or_(
+        UserModel.is_seo == False,
+        UserModel.is_content_author == False,
+        UserModel.is_content_teamlead == False,
+    ))
     if order == OrderEnum.desc:
         users = active_users_query.order_by(
             desc(text(order_by.value))).offset(offset).limit(limit).all()
@@ -130,14 +138,66 @@ def users_list(
 
 
 @router.get("/seo/all", response_model=list[UserReadTeamleadSerializer])
-def users_list(
-        db: Session = fa.Depends(get_session_dependency),
+def users_list_seo(
+        session: Session = fa.Depends(get_session_dependency),
         order_by: UserOrderByEnum = UserOrderByEnum.id,
         order: OrderEnum = OrderEnum.asc,
         offset: int | None = None, limit: int | None = None,
 ):
-    active_users_query = get_query_all_active(db, UserModel) \
+    active_users_query = get_query_all_active(session, UserModel) \
         .filter(UserModel.is_seo == True)
+    if order == OrderEnum.desc:
+        users = active_users_query.order_by(
+            desc(text(order_by.value))).offset(offset).limit(limit).all()
+    else:
+        users = active_users_query.order_by(
+            asc(text(order_by.value))).offset(offset).limit(limit).all()
+
+    return users
+
+
+@router.get("/content/all", response_model=list[UserReadContentTeamleadSerializer])
+def users_list_linkers(
+        session: Session = fa.Depends(get_session_dependency),
+        order_by: UserOrderByEnum = UserOrderByEnum.id,
+        order: OrderEnum = OrderEnum.asc,
+        offset: int | None = None, limit: int | None = None,
+):
+    active_users_query = get_query_all_active(session, UserModel) \
+        .filter(or_(
+        UserModel.is_content_author == True,
+        UserModel.is_content_teamlead == True,
+    ))
+    if order == OrderEnum.desc:
+        users = active_users_query.order_by(
+            desc(text(order_by.value))).offset(offset).limit(limit).all()
+    else:
+        users = active_users_query.order_by(
+            asc(text(order_by.value))).offset(offset).limit(limit).all()
+
+    return users
+
+
+@router.get("/content/teamleads", response_model=list[UserReadSerializer])
+def users_list_content_teamleads(
+        session: Session = fa.Depends(get_session_dependency)
+):
+    users = SqlAlchemyRepository(session) \
+        .get_query_all_active(UserModel) \
+        .filter(UserModel.is_content_teamlead == True) \
+        .all()
+    return users
+
+
+@router.get("/content/authors", response_model=list[UserReadContentTeamleadSerializer])
+def users_list_content_authors(
+        session: Session = fa.Depends(get_session_dependency),
+        order_by: UserOrderByEnum = UserOrderByEnum.id,
+        order: OrderEnum = OrderEnum.asc,
+        offset: int | None = None, limit: int | None = None,
+):
+    active_users_query = get_query_all_active(session, UserModel) \
+        .filter(UserModel.is_content_author == True)
     if order == OrderEnum.desc:
         users = active_users_query.order_by(
             desc(text(order_by.value))).offset(offset).limit(limit).all()
@@ -156,8 +216,19 @@ def users_notify_all():
 
 @router.post("/fetch-from-keycloack/me", status_code=fa.status.HTTP_201_CREATED)
 def users_fetch_from_keycloack_me():
-    task = fetch_user_from_keycloak.delay()
-    return {'task_id': f'{task.task_id}'}
+    """fetches from keycloack user mentioned in .envs/ as SUPERUSER and creates it at local database"""
+    fetch_user_from_keycloak()
+    return {'message': 'ok'}
+
+
+@router.get("/fetch-from-keycloack/my-roles")
+def users_keycloak_roles_my(
+        current_user: UserModel = fa.Depends(get_current_user_dependency),
+):
+    """fetches from keycloack realm-level role-mappings of current user and returns them as list"""
+    kc_admin = KCAdmin()
+    roles = kc_admin.get_roles(current_user)
+    return roles
 
 
 @router.post("/", response_model=UserReadSerializer)
@@ -165,13 +236,13 @@ def users_create(
         user_ser: UserCreateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
         seo_link_url_domains_id: list[int] = fa.Body(default=[]),
-        db: Session = fa.Depends(get_session_dependency)
+        session: Session = fa.Depends(get_session_dependency)
 ):
     if not current_user.is_head:
         raise UnauthorizedException
 
     user_ser.email = user_ser.email.lower()
-    user_with_the_same_email = get(db, UserModel, email=user_ser.email)
+    user_with_the_same_email = get(session, UserModel, email=user_ser.email)
     if user_with_the_same_email is not None:
         raise fa.HTTPException(status_code=400, detail="Email already registered")
 
@@ -180,21 +251,25 @@ def users_create(
     kc_user_uuid = kc_admin.get_user_uuid_by_email(user_ser.email)
     user_ser.uuid = kc_user_uuid
 
-    user = create(db, UserModel, user_ser)
+    user: UserModel = create(session, UserModel, user_ser)
     if user.is_head:
         kc_admin.set_role_head(user)
     if user.is_teamlead:
         kc_admin.set_role_teamlead(user)
     if user.is_seo:
         kc_admin.set_role_seo(user)
+    if user.is_content_teamlead:
+        kc_admin.set_role_content_teamlead(user)
+    if user.is_content_author:
+        kc_admin.set_role_content_author(user)
     if not user.is_head and not user.is_teamlead and not user.is_seo:
-        kc_admin.set_role_linkbuilbder(user)
+        kc_admin.set_role_linkbuilder(user)
 
     if seo_link_url_domains_id:
-        seo_link_url_domains = db.query(LinkUrlDomainModel) \
+        seo_link_url_domains = session.query(LinkUrlDomainModel) \
             .where(LinkUrlDomainModel.id.in_(seo_link_url_domains_id)).all()
         user.seo_link_url_domains = seo_link_url_domains
-        db.commit()
+        session.commit()
     kc_admin.send_request_verify_email_and_reset_password(user)
     return user
 
@@ -205,18 +280,18 @@ async def users_update(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
         seo_link_url_domains_id: list[int] = fa.Body(default=[]),
-        db: Session = fa.Depends(get_session_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
     if not current_user.is_head:
         raise UnauthorizedException
 
-    user: UserModel = get(db, UserModel, id=user_id)
+    user: UserModel = get(session, UserModel, id=user_id)
     if user is None:
         raise fa.HTTPException(status_code=404, detail="user not found")
 
     if user_ser.email is not None and user_ser.email != user.email:
         user_ser.email = user_ser.email.lower()
-        user_with_the_same_email = get(db, UserModel, email=user_ser.email)
+        user_with_the_same_email = get(session, UserModel, email=user_ser.email)
         if user_with_the_same_email is not None:
             raise fa.HTTPException(status_code=400, detail="Email already registered")
 
@@ -224,12 +299,12 @@ async def users_update(
     kc_admin.update_user_credentials(user, user_ser)
     kc_admin.update_user_roles(user, user_ser)
 
-    user = update(db, user, user_ser)
+    user = update(session, user, user_ser)
 
-    seo_link_url_domains = db.query(LinkUrlDomainModel) \
+    seo_link_url_domains = session.query(LinkUrlDomainModel) \
         .where(LinkUrlDomainModel.id.in_(seo_link_url_domains_id)).all()
     user.seo_link_url_domains = seo_link_url_domains
-    db.commit()
+    session.commit()
     return user
 
 
@@ -319,14 +394,14 @@ async def users_remove(
 def users_me_set_telegram_id(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
     """
     set telegram id to current user
     """
     current_user.telegram_id = user_ser.telegram_id
-    db.commit()
-    db.refresh(current_user)
+    session.commit()
+    session.refresh(current_user)
     return current_user
 
 
@@ -334,7 +409,7 @@ def users_me_set_telegram_id(
 def users_me_enable_disable_notification_telegram(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
     """
     update current_user.is_accepting_telegram
@@ -343,8 +418,8 @@ def users_me_enable_disable_notification_telegram(
         raise fa.HTTPException(status_code=fa.status.HTTP_400_BAD_REQUEST,
                                detail='You should login with Telegram firstly to set telegram_id!')
     current_user.is_accepting_telegram = user_ser.is_accepting_telegram
-    db.commit()
-    db.refresh(current_user)
+    session.commit()
+    session.refresh(current_user)
     return current_user
 
 
@@ -352,12 +427,12 @@ def users_me_enable_disable_notification_telegram(
 def users_me_enable_disable_notification_email(
         user_ser: UserUpdateSerializer,
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        session: Session = fa.Depends(get_session_dependency),
 ):
     """
     update current_user.is_accepting_emails
     """
     current_user.is_accepting_emails = user_ser.is_accepting_emails
-    db.commit()
-    db.refresh(current_user)
+    session.commit()
+    session.refresh(current_user)
     return current_user

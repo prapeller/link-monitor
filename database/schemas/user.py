@@ -9,10 +9,13 @@ class UserUpdateSerializer(pd.BaseModel):
     last_name: str | None = None
     is_teamlead: bool | None = None
     is_head: bool | None = None
+    is_content_teamlead: bool | None = None
+    is_content_author: bool | None = None
     is_accepting_emails: bool | None = None
     is_accepting_telegram: bool | None = None
     telegram_id: str | None = None
     teamlead_id: int | None = None
+    content_teamlead_id: int | None = None
     is_active: bool | None = None
     is_seo: bool | None = None
 
@@ -32,6 +35,7 @@ class UserReadSerializer(UserCreateSerializer):
 
     seo_link_url_domains_id: list[int] = []
     linkbuilders_id: list[int] = []
+    content_authors_id: list[int] = []
 
     class Config:
         orm_mode = True
@@ -39,6 +43,13 @@ class UserReadSerializer(UserCreateSerializer):
 
 class UserReadTeamleadSerializer(UserReadSerializer):
     teamlead: 'UserReadSerializer' = None
+
+    class Config:
+        orm_mode = True
+
+
+class UserReadContentTeamleadSerializer(UserReadSerializer):
+    content_teamlead: 'UserReadSerializer' = None
 
     class Config:
         orm_mode = True
@@ -80,3 +91,4 @@ class DashboardUserDataResponseModel(pd.BaseModel):
 
 
 UserReadTeamleadSerializer.update_forward_refs()
+UserReadContentTeamleadSerializer.update_forward_refs()

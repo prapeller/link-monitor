@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from database.models.link import LinkModel
 from database.models.user import UserModel
-from services.notificator import send_email, send_telegram
+from services.notificator.notificator import send_email, send_telegram
 
 UnauthorizedException = fa.HTTPException(
     status_code=fa.status.HTTP_401_UNAUTHORIZED,

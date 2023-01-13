@@ -22,6 +22,7 @@ class LinkCheckCreateSerializer(pd.BaseModel):
     redirect_codes_list: str | None = None
     redirect_url: str | None = None
     link_url_others_count: int | None = None
+    check_mode: str | None = None
 
 
 class LinkCheckReadSerializer(LinkCheckCreateSerializer):

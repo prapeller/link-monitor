@@ -1,5 +1,6 @@
 import re
 from collections import OrderedDict
+from functools import wraps
 
 import httpx
 import sqlalchemy as sa
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session, Query
 from sqlalchemy.sql import and_
 
 from core.enums import OrderEnum
+from core.exceptions import UnauthorizedException
 from database import Base
 from database.models.link import LinkModel
 from database.models.link_check import LinkCheckModel
@@ -22,12 +24,13 @@ def get_link_check_last(link) -> LinkCheckModel:
     return link_check_last
 
 
-def set_link_check_last(link) -> None:
+def set_link_check_last(link: LinkModel) -> None:
     """for link - setting link_check_last_id, link.link_check_last_result_message, link_check_last_status"""
     linkcheck_last = get_link_check_last(link)
     link.link_check_last_id = linkcheck_last.id if linkcheck_last else None
     link.link_check_last_result_message = linkcheck_last.result_message if linkcheck_last else None
     link.link_check_last_status = linkcheck_last.status if linkcheck_last else None
+    link.link_check_last_check_mode = linkcheck_last.check_mode if linkcheck_last else None
 
 
 def chunks_generator(lst, chunk_size):
@@ -161,12 +164,14 @@ def paginate_query(Model: Base, query: Query, order_by: str, order: OrderEnum, p
     return query
 
 
-def update_links(session: Session, links, linkchecks):
+def update_links(session: Session, links: list[LinkModel], linkchecks: list[LinkCheckModel]):
     for link in links:
         link_check = next((lc for lc in linkchecks if lc.link_id == link.id), None)
         link.link_check_last_id = link_check.id
         link.link_check_last_status = link_check.status
         link.link_check_last_result_message = link_check.result_message
+        link.link_check_last_check_mode = link_check.check_mode
+        link.link_check_last_created_at = link_check.created_at
     session.commit()
 
 
@@ -242,3 +247,47 @@ LIMITS_5 = httpx.Limits(max_connections=5)
 TIMEOUT_2 = httpx.Timeout(connect=2, read=2, write=2, pool=None)
 TIMEOUT_5 = httpx.Timeout(connect=5, read=5, write=5, pool=None)
 TIMEOUT_30 = httpx.Timeout(connect=30, read=30, write=30, pool=None)
+
+
+def auth_head_only(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        current_user = kwargs.get('current_user')
+        if current_user:
+            # if user doesn't have role 'head'
+            if not current_user.is_head:
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def auth_teamlead_only(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        current_user = kwargs.get('current_user')
+        if current_user:
+            # access denied if user doesn't have roles or have roles others but not 'teamleadRole'
+            if current_user.employeeType is None or 'teamleadRole' not in current_user.employeeType:
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def auth_head_or_teamlead(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+
+        current_user = kwargs.get('current_user')
+
+        if current_user:
+            current_user_roles = current_user.employeeType
+            # access denied if user doesn't have roles or both roles ('teamleadRole', 'headRole') are absent
+            if current_user_roles is None or (
+                    'teamleadRole' not in current_user_roles and
+                    'headRole' not in current_user_roles):
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper

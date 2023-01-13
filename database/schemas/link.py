@@ -12,6 +12,8 @@ class LinkUpdateSerializer(pd.BaseModel):
     price: float | None = None
     contact: str | None = None
     screenshot_url: pd.HttpUrl | None = None
+    link_check_last_check_mode: str | None = None
+    link_check_last_created_at: datetime | None = None
 
     user_id: int | None = None
 

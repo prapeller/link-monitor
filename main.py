@@ -11,13 +11,15 @@ from routers.v1 import auth as v1_auth
 from routers.v1 import link_url_domains as v1_link_url_domains
 from routers.v1 import linkchecks as v1_linkchecks
 from routers.v1 import links as v1_links
+from routers.v1 import messages as v1_messages
 from routers.v1 import page_url_domains as v1_page_url_domains
 from routers.v1 import postgres as v1_postgres
 from routers.v1 import reports as v1_reports
-from routers.v1 import tasks as v1_tasks
+from routers.v1 import tags as v1_tags
+from routers.v1 import tasks_celery as v1_tasks_celery
+from routers.v1 import tasks_content as v1_tasks_content
 from routers.v1 import users as v1_users
 from routers.v2 import link_url_domains as v2_link_url_domains
-from routers.v2 import links as v2_links
 from routers.v2 import reports as v2_reports
 
 init_models()
@@ -51,22 +53,26 @@ v1_auth_router.include_router(v1_linkchecks.router, prefix='/linkchecks',
 v1_auth_router.include_router(v1_reports.router, prefix='/reports',
                               tags=['reports'])
 v1_auth_router.include_router(v1_link_url_domains.router, prefix='/link_url_domains',
-                              tags=['link_url_domains'])
+                              tags=['link_url_domains (projects)'])
 v1_auth_router.include_router(v1_page_url_domains.router, prefix='/page_url_domains',
-                              tags=['page_url_domains'])
-v1_auth_router.include_router(v1_tasks.router, prefix='/tasks',
-                              tags=['tasks'])
+                              tags=['page_url_domains (donors)'])
+v1_auth_router.include_router(v1_tasks_celery.router, prefix='/tasks-celery',
+                              tags=['tasks_celery'])
+v1_auth_router.include_router(v1_tasks_content.router, prefix='/tasks-content',
+                              tags=['tasks_content'])
 v1_auth_router.include_router(v1_postgres.router, prefix='/postgres',
                               tags=['postgres'])
+v1_auth_router.include_router(v1_messages.router, prefix='/messages',
+                              tags=['messages'])
+v1_auth_router.include_router(v1_tags.router, prefix='/tags',
+                              tags=['tags'])
 
 # v2 router
 
 v2_auth_router = APIRouter(dependencies=[Depends(get_current_user_dependency)])
 
-v2_auth_router.include_router(v2_links.router, prefix='/links',
-                              tags=['links'])
 v2_auth_router.include_router(v2_link_url_domains.router, prefix='/link_url_domains',
-                              tags=['link_url_domains'])
+                              tags=['link_url_domains (projects)'])
 v2_auth_router.include_router(v2_reports.router, prefix='/reports',
                               tags=['reports'])
 

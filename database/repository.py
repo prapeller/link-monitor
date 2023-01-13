@@ -37,9 +37,16 @@ class SqlAlchemyRepository(AbstractRepository):
         return model_obj
 
     def get(self, Model, **kwargs):
-        return self.session.query(Model).filter_by(**kwargs).first()
+        model_obj = self.session.query(Model).filter_by(**kwargs).first()
+        if model_obj is None:
+            raise fa.HTTPException(status_code=404, detail=f"{Model} not found")
+        return model_obj
 
-    def get_many(self, Model, id_list):
+    def get_many(self, Model, **kwargs):
+        model_obj_list = self.session.query(Model).filter_by(**kwargs).all()
+        return model_obj_list
+
+    def get_many_by_id(self, Model, id_list):
         model_obj_list = []
         for id in id_list:
             model_obj = self.session.query(Model).get(id)

@@ -5,7 +5,7 @@ WHERE
   -- don't kill this connection!
     pid <> pg_backend_pid()
   -- don't kill the connections to other databases
-  AND datname = 'reportpostgres_db';
+  AND datname = 'report';
 
 -- check number of connections to database
 SELECT sum(numbackends) FROM pg_stat_database;

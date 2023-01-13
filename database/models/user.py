@@ -2,7 +2,7 @@ from typing import Union
 
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 
 from database import Base
@@ -97,15 +97,35 @@ class UserModel(Base):
     is_head = sa.Column(sa.Boolean, default=False)
     is_teamlead = sa.Column(sa.Boolean, default=False)
     is_seo = sa.Column(sa.Boolean, default=False)
+    is_content_teamlead = sa.Column(sa.Boolean, default=False)
+    is_content_author = sa.Column(sa.Boolean, default=False)
     is_accepting_emails = sa.Column(sa.Boolean, default=False)
     is_accepting_telegram = sa.Column(sa.Boolean, default=False)
     telegram_id = sa.Column(sa.String(255))
     is_active = sa.Column(sa.Boolean, default=True)
 
     teamlead_id = sa.Column(sa.Integer, sa.ForeignKey('user.id'))
-    teamlead = relationship("UserModel", back_populates='linkbuilders', remote_side='UserModel.id')
+    teamlead = relationship("UserModel",
+                            primaryjoin='UserModel.id==UserModel.teamlead_id',
+                            remote_side='UserModel.id',
+                            backref=backref('linkbuilders'),
+                            # back_populates='linkbuilders',
+                            )
+    # linkbuilders = relationship("UserModel", back_populates='teamlead',
+                                # primaryjoin='UserModel.id.in_(UserModel.linkbuilders_id)'
+                                # )
 
-    linkbuilders = relationship("UserModel", back_populates='teamlead')
+    content_teamlead_id = sa.Column(sa.Integer, sa.ForeignKey('user.id'))
+    content_teamlead = relationship("UserModel",
+                                    primaryjoin='UserModel.id==UserModel.content_teamlead_id',
+                                    remote_side='UserModel.id',
+                                    backref=backref('content_authors'),
+                                    # back_populates='content_authors',
+                                    )
+    # content_authors = relationship("UserModel", back_populates='content_teamlead',
+                                   # primaryjoin='UserModel.id.in_(UserModel.content_authors_id)'
+                                   # )
+
     links = relationship("LinkModel", back_populates='user')
     sent_messages = relationship("MessageModel", back_populates='from_user',
                                  primaryjoin='MessageModel.from_user_id==UserModel.id')
@@ -115,6 +135,15 @@ class UserModel(Base):
     seo_link_url_domains = relationship("LinkUrlDomainModel", secondary='user_link_url_domain',
                                         back_populates='seo_users')
 
+    content_linkbuilder_tasks = relationship("TaskContentModel", back_populates='content_linkbuilder',
+                                             primaryjoin='TaskContentModel.content_linkbuilder_id==UserModel.id')
+
+    content_teamlead_tasks = relationship("TaskContentModel", back_populates='content_teamlead',
+                                          primaryjoin='TaskContentModel.content_teamlead_id==UserModel.id')
+
+    content_author_tasks = relationship("TaskContentModel", back_populates='content_author',
+                                        primaryjoin='TaskContentModel.content_author_id==UserModel.id')
+
     @hybrid_property
     def seo_link_url_domains_id(self):
         return [link_url_domain.id for link_url_domain in self.seo_link_url_domains]
@@ -122,6 +151,18 @@ class UserModel(Base):
     @hybrid_property
     def linkbuilders_id(self):
         return [linkbuilder.id for linkbuilder in self.linkbuilders]
+
+    @linkbuilders_id.expression
+    def linkbuilders_id(cls):
+        return sa.select(UserModel.id).where(UserModel.teamlead_id == cls.id)
+
+    @hybrid_property
+    def content_authors_id(self):
+        return [content_author.id for content_author in self.content_authors]
+
+    @content_authors_id.expression
+    def content_authors_id(cls):
+        return sa.select(UserModel.id).where(UserModel.content_teamlead_id == cls.id)
 
     @hybrid_property
     def links_id(self):

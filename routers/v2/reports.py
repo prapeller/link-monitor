@@ -11,13 +11,13 @@ from core.dependencies import (get_session_dependency,
                                link_params_dependency)
 from core.enums import LinkOrderByEnum, OrderEnum
 from core.exceptions import UnauthorizedException
+from core.shared import filter_query_by_period_params_link, filter_query_by_model_params_link
 from database.crud import get_query_all_active, get
 from database.models.link import LinkModel
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
 from database.schemas.user import DashboardUserDataResponseModel
-from core.shared import filter_query_by_period_params_link, filter_query_by_model_params_link
-from services.file_handler import iterfile
+from services.file_handler.file_handler import iterfile
 from services.reporter.based_link.generator import generate_filtered_links_report
 from services.reporter.based_link.generator import get_dashboard_data
 from services.reporter.based_link_url_domain.generator import (

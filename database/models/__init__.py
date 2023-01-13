@@ -13,6 +13,7 @@ def init_models():
     from database.models import link_url_domain
     from database.models import page_url_domain
     from database.models import message
+    from database.models import task
     from database.models import association
 
 

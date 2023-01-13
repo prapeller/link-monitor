@@ -1,14 +1,14 @@
-from typing import Union
 from statistics import mean
+from typing import Union
 
 import sqlalchemy as sa
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.ext.hybrid import hybrid_property
 
 from database import Base
-from database.models.link import LinkModel
 from database.models.association import IdentifiedCreatedUpdated, PageUrlDomainTagAssociation
+from database.models.link import LinkModel
 from database.models.tag import Tag, TagModel
 
 
@@ -32,6 +32,7 @@ class PageUrlDomainModel(Base):
     link_dr_last = sa.Column(sa.Numeric(precision=10, scale=2))
     link_created_at_last = sa.Column(sa.DateTime)
     link_price_avg = sa.Column(sa.Numeric(precision=10, scale=2))
+    last_month_visits = sa.Column(sa.String(20))
 
     links = relationship("LinkModel", back_populates='page_url_domain')
     tags = relationship('TagModel', secondary='page_url_domain_tag')
@@ -120,6 +121,30 @@ class PageUrlDomainModel(Base):
     def country_tags_id(cls):
         return sa.select(sa.distinct(TagModel.id)).select_from(TagModel).join(cls.tags) \
             .filter(TagModel.ref_property == 'country')
+
+    @country_tags.setter
+    def country_tags(self, value):
+        if self.tags:
+            country_tags = [tag for tag in self.tags if tag.ref_property == 'country']
+            for tag in country_tags:
+                self.tags.remove(tag)
+
+        if isinstance(value, list):
+            self.tags.extend(value)
+        elif isinstance(value, TagModel):
+            self.tags.append(value)
+
+    @language_tags.setter
+    def language_tags(self, value):
+        if self.tags:
+            language_tags = [tag for tag in self.tags if tag.ref_property == 'language']
+            for tag in language_tags:
+                self.tags.remove(tag)
+
+        if isinstance(value, list):
+            self.tags.extend(value)
+        elif isinstance(value, TagModel):
+            self.tags.append(value)
 
     def __repr__(self):
         return f"<PageUrlDomainModel> (id={self.id}, name={self.name})"

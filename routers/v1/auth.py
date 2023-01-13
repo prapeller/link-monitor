@@ -1,5 +1,6 @@
 import fastapi as fa
-from services.keycloak import get_admin_token
+
+from services.keycloak.keycloak import get_admin_token
 
 router = fa.APIRouter()
 

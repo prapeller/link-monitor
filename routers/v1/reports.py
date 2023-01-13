@@ -6,7 +6,7 @@ from core.dependencies import get_session_dependency, get_current_user_dependenc
 from database.crud import get
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
-from services.file_handler import iterfile
+from services.file_handler.file_handler import iterfile
 from services.reporter.based_link.generator import generate_report as generate_links_report
 from services.reporter.based_link_url_domain.generator import (
     generate_report as generate_link_url_domain_report,
@@ -126,7 +126,6 @@ def get_report_link_url_domains_id_users_all(
 
     return StreamingResponse(iterfile(filepath=to_save_filepath))
 
-
 # @router.get("/link_url_domains/all/users/all/ui")
 # def get_report_link_url_domains_all_users_all_ui(db: Session = fa.Depends(get_db_dependency)):
 #     link_url_domains = db.query(LinkUrlDomainModel).all()
@@ -146,7 +145,6 @@ def get_report_link_url_domains_id_users_all(
 #     return generate_link_url_domain_report_ui(db=db,
 #                                               link_url_domains=link_url_domains,
 #                                               users=users)
-
 
 
 # @router.get("/link_url_domains/{id}/users/my-linkbuilders/ui")
