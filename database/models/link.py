@@ -1,47 +1,13 @@
-from typing import Union
-
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 
-from database import Base
-from database.models.association import IdentifiedCreatedUpdated
-from database.models.link_check import LinkCheckModel
+from database import IdentifiedCreatedUpdated, Base
 from database.models.link_url_domain import LinkUrlDomainModel
 
 
-class Link(IdentifiedCreatedUpdated):
-    page_url: str
-    link_url: str
-    anchor: str
-    da: float | None = None
-    dr: float | None = None
-    price: float | None = None
-    contact: str | None = None
-    screenshot_url: str | None = None
-
-    link_url_domain_id: int | None = None
-    page_url_domain_id: int | None = None
-    user_id: int | None = None
-
-    link_checks: Union[list['LinkCheck'], None] = None
-    user: Union['User', None] = None
-    page_url_domain: Union['PageUrlDomain', None] = None
-    link_url_domain: Union['LinkUrlDomain', None] = None
-
-    link_check_last_id: int | None = None
-    link_check_last: Union['LinkCheck', None] = None
-    link_check_last_status: str | None = None
-    link_check_last_result_message: str | None = None
-
-
-class LinkModel(Base):
+class LinkModel(IdentifiedCreatedUpdated, Base):
     __tablename__ = 'link'
-
-    id = sa.Column(sa.Integer, primary_key=True)
-    created_at = sa.Column(sa.DateTime, server_default=func.now(), nullable=False)
-    updated_at = sa.Column(sa.DateTime)
 
     page_url = sa.Column(sa.String(2048), nullable=False, index=True)
     anchor = sa.Column(sa.String(512), nullable=False, index=True)
@@ -65,7 +31,8 @@ class LinkModel(Base):
                                primaryjoin='LinkModel.id==LinkCheckModel.link_id')
 
     link_check_last_id = sa.Column(sa.Integer, sa.ForeignKey('link_check.id'))
-    link_check_last = relationship("LinkCheckModel", primaryjoin='LinkModel.link_check_last_id==LinkCheckModel.id',
+    link_check_last = relationship("LinkCheckModel",
+                                   primaryjoin='LinkModel.link_check_last_id==LinkCheckModel.id',
                                    post_update=True)
     link_check_last_status = sa.Column(sa.String(10), index=True)
     link_check_last_result_message = sa.Column(sa.String, index=True)
@@ -81,14 +48,16 @@ class LinkModel(Base):
 
     @link_url_domain_name.expression
     def link_url_domain_name(cls):
-        return sa.select(LinkUrlDomainModel.name).where(LinkUrlDomainModel.id == cls.link_url_domain_id)
+        return sa.select(LinkUrlDomainModel.name).where(
+            LinkUrlDomainModel.id == cls.link_url_domain_id)
 
     __table_args__ = (
-        sa.UniqueConstraint('page_url', 'anchor', 'link_url', name='unique_page_url_anchor_link_url'),
+        sa.UniqueConstraint('page_url', 'anchor', 'link_url',
+                            name='unique_page_url_anchor_link_url'),
     )
 
     def __str__(self):
-        return f"Link (id={self.id}, page_url={self.page_url})"
+        return f"Link ({self.id=:}, {self.page_url=:})"
 
     def __repr__(self):
-        return f"<LinkModel> (id={self.id}, link_url_domain={self.link_url_domain})"
+        return f"<LinkModel> ({self.id=:}, {self.link_url_domain=:})"

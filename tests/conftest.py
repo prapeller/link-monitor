@@ -2,20 +2,20 @@ import pytest
 from sqlalchemy.orm import clear_mappers
 
 from database import Base, SessionLocal, SessionInMemory, in_memory_engine
-from database.models import start_mappers
+from database.models import init_models
 from database.repository import SqlAlchemyRepository
 
 
-@pytest.fixture
-def session_in_memory_mapped():
-    session = SessionInMemory()
-    Base.metadata.create_all(in_memory_engine)
-    try:
-        start_mappers(in_memory_engine)
-        yield session
-    finally:
-        clear_mappers()
-        session.close()
+# @pytest.fixture
+# def session_in_memory_mapped():
+#     session = SessionInMemory()
+#     Base.metadata.create_all(in_memory_engine)
+#     try:
+#         start_mappers(in_memory_engine)
+#         yield session
+#     finally:
+#         clear_mappers()
+#         session.close()
 
 
 @pytest.fixture
@@ -40,6 +40,7 @@ def session_in_memory():
 
 @pytest.fixture
 def repo_in_memory(session_in_memory):
+    init_models()
     repo = SqlAlchemyRepository(session_in_memory)
     try:
         yield repo

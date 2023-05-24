@@ -63,6 +63,14 @@ role_content_teamlead = {
     "containerId": settings.KEYCLOAK_REALM_APP,
 }
 
+role_content_head = {
+    "id": '0cae18ba-bccb-41a1-86ab-cd96e0be872e',
+    "name": "content_head",
+    "composite": False,
+    "clientRole": False,
+    "containerId": settings.KEYCLOAK_REALM_APP,
+}
+
 
 def get_admin_token():
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
@@ -91,186 +99,6 @@ class KCAdmin():
         self.kc_realm_app = settings.KEYCLOAK_REALM_APP
         self.kc_client_id_app = settings.KEYCLOAK_CLIENT_ID_APP
 
-    def get_user_uuid_by_email(self, email: str) -> str:
-        try:
-            resp = requests.get(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users?email={email}",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-            )
-            user_id = resp.json()[0]['id']
-            return user_id
-        except IndexError:
-            return ''
-
-    def get_roles(self, user: UserModel) -> dict | None:
-        try:
-            resp = requests.get(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-            )
-            roles_dict = resp.json()
-            return roles_dict
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant get roles for {user}, {str(e)}")
-
-    def set_role_head(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_head]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'head' for {user}, {str(e)}")
-
-    def delete_role_head(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.delete(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_head]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant delete role 'head' for {user}, {str(e)}")
-
-    def set_role_teamlead(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_teamlead]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'teamlead' for {user}, {str(e)}")
-
-    def delete_role_teamlead(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.delete(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_teamlead]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant delete role 'teamlead' for {user}, {str(e)}")
-
-    def set_role_seo(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_seo]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'teamlead' for {user}, {str(e)}")
-
-    def delete_role_seo(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.delete(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_seo]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant delete role 'teamlead' for {user}, {str(e)}")
-
-    def set_role_content_teamlead(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_content_teamlead]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'content_teamlead' for {user}, {str(e)}")
-
-    def delete_role_content_teamlead(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.delete(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_content_teamlead]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant delete role 'content_teamlead' for {user}, {str(e)}")
-
-    def set_role_content_author(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_content_author]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'content_author' for {user}, {str(e)}")
-
-    def delete_role_content_author(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.delete(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_content_author]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant delete role 'content_author' for {user}, {str(e)}")
-
-    def set_role_linkbuilder(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.post(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
-                    f"users/{user.uuid}/role-mappings/realm",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=[role_linkbuilder]
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant set role 'linkbuilder' for {user}, {str(e)}")
-
     def create_user(self, user_ser: UserCreateSerializer) -> requests.Response | None:
         try:
             resp = requests.post(
@@ -288,21 +116,6 @@ class KCAdmin():
             logger.error(traceback.format_exc())
             raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
                                    detail=f"keycloak cant create user, {str(e)}")
-
-    def send_request_verify_email_and_reset_password(self, user: UserModel) -> requests.Response | None:
-        try:
-            resp = requests.put(
-                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/users/{user.uuid}/execute-actions-email"
-                    f"?client_id={self.kc_client_id_app}"
-                    f"&redirect_uri={settings.BASE_URL}",
-                headers={"Authorization": f"Bearer {self.admin_access_token}"},
-                json=['VERIFY_EMAIL', 'UPDATE_PASSWORD']
-            )
-            return resp
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                   detail=f"keycloak cant send verify email to user, {str(e)}")
 
     def update_user_credentials(self, user: UserModel, user_ser: UserUpdateSerializer) -> requests.Response | None:
         try:
@@ -329,37 +142,20 @@ class KCAdmin():
             raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
                                    detail=f'keycloak cant update user {user}, {str(e)}')
 
-    def update_user_roles(self, user: UserModel,
-                          user_ser: UserUpdateSerializer | UserCreateSerializer) -> None:
-        if user_ser.is_head is True and user.is_head is False:
-            self.set_role_head(user)
-
-        if user_ser.is_head is False and user.is_head is True:
-            self.delete_role_head(user)
-
-        if user_ser.is_teamlead is True and user.is_teamlead is False:
-            self.set_role_teamlead(user)
-
-        if user_ser.is_teamlead is False and user.is_teamlead is True:
-            self.delete_role_teamlead(user)
-
-        if user_ser.is_seo is True and user.is_seo is False:
-            self.set_role_seo(user)
-
-        if user_ser.is_seo is False and user.is_seo is True:
-            self.delete_role_seo(user)
-
-        if user_ser.is_content_teamlead is True and user.is_content_teamlead is False:
-            self.set_role_content_teamlead(user)
-
-        if user_ser.is_content_teamlead is False and user.is_content_teamlead is True:
-            self.delete_role_content_teamlead(user)
-
-        if user_ser.is_content_author is True and user.is_content_author is False:
-            self.set_role_content_author(user)
-
-        if user_ser.is_content_author is False and user.is_content_author is True:
-            self.delete_role_content_author(user)
+    def send_request_verify_email_and_reset_password(self, user: UserModel) -> requests.Response | None:
+        try:
+            resp = requests.put(
+                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/users/{user.uuid}/execute-actions-email"
+                    f"?client_id={self.kc_client_id_app}"
+                    f"&redirect_uri={settings.BASE_URL}",
+                headers={"Authorization": f"Bearer {self.admin_access_token}"},
+                json=['VERIFY_EMAIL', 'UPDATE_PASSWORD']
+            )
+            return resp
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                   detail=f"keycloak cant send verify email to user, {str(e)}")
 
     def deactivate_user(self, user: UserModel) -> requests.Response | None:
         try:
@@ -398,3 +194,155 @@ class KCAdmin():
             logger.error(traceback.format_exc())
             raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
                                    detail=f"keycloak cant remove user {user}, {str(e)}")
+
+    def get_user_uuid_by_email(self, email: str) -> str:
+        try:
+            resp = requests.get(
+                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
+                    f"users?email={email}",
+                headers={"Authorization": f"Bearer {self.admin_access_token}"},
+            )
+            user_id = resp.json()[0]['id']
+            return user_id
+        except IndexError:
+            return ''
+
+    def get_user_roles(self, user: UserModel) -> dict | None:
+        try:
+            resp = requests.get(
+                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
+                    f"users/{user.uuid}/role-mappings/realm",
+                headers={"Authorization": f"Bearer {self.admin_access_token}"},
+            )
+            roles_dict = resp.json()
+            return roles_dict
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                   detail=f"keycloak cant get roles for {user}, {str(e)}")
+
+    def set_user_role(self, user: UserModel, role: dict) -> requests.Response | None:
+        try:
+            resp = requests.post(
+                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
+                    f"users/{user.uuid}/role-mappings/realm",
+                headers={"Authorization": f"Bearer {self.admin_access_token}"},
+                json=[role]
+            )
+            return resp
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                   detail=f"keycloak cant set role '{role.get('name')}' for {user}, {str(e)}")
+
+    def delete_user_role(self, user: UserModel, role: dict) -> requests.Response | None:
+        try:
+            resp = requests.delete(
+                url=f"{self.kc_base_url}/admin/realms/{self.kc_realm_app}/"
+                    f"users/{user.uuid}/role-mappings/realm",
+                headers={"Authorization": f"Bearer {self.admin_access_token}"},
+                json=[role_head]
+            )
+            return resp
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            raise fa.HTTPException(status_code=fa.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                   detail=f"keycloak cant delete role '{role.get('name')}' for {user}, {str(e)}")
+
+    def set_role_head(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_head)
+
+    def delete_role_head(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_head)
+
+    def set_role_teamlead(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_teamlead)
+
+    def delete_role_teamlead(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_teamlead)
+
+    def set_role_seo(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_seo)
+
+    def delete_role_seo(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_seo)
+
+    def set_role_content_teamlead(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_content_teamlead)
+
+    def delete_role_content_teamlead(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_content_teamlead)
+
+    def set_role_content_head(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_content_head)
+
+    def delete_role_content_head(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_content_head)
+
+    def set_role_content_author(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_content_author)
+
+    def delete_role_content_author(self, user: UserModel) -> requests.Response | None:
+        return self.delete_user_role(user, role_content_author)
+
+    def set_role_linkbuilder(self, user: UserModel) -> requests.Response | None:
+        return self.set_user_role(user, role_linkbuilder)
+
+    def set_user_roles(self, user):
+        if user.is_head:
+            self.set_role_head(user)
+        if user.is_content_head:
+            self.set_role_content_head(user)
+        if user.is_teamlead:
+            self.set_role_teamlead(user)
+        if user.is_seo:
+            self.set_role_seo(user)
+        if user.is_content_teamlead:
+            self.set_role_content_teamlead(user)
+        if user.is_content_author:
+            self.set_role_content_author(user)
+        if not user.is_head \
+                and not user.is_content_head \
+                and not user.is_teamlead \
+                and not user.is_seo \
+                and not user.is_content_teamlead \
+                and not user.is_content_author:
+            self.set_role_linkbuilder(user)
+
+    def update_user_roles(self, user: UserModel,
+                          user_ser: UserUpdateSerializer | UserCreateSerializer) -> None:
+        if user_ser.is_head is True and user.is_head is False:
+            self.set_role_head(user)
+
+        if user_ser.is_head is False and user.is_head is True:
+            self.delete_role_head(user)
+
+        if user_ser.is_content_head is True and user.is_content_head is False:
+            self.set_role_content_head(user)
+
+        if user_ser.is_content_head is False and user.is_content_head is True:
+            self.delete_role_content_head(user)
+
+        if user_ser.is_teamlead is True and user.is_teamlead is False:
+            self.set_role_teamlead(user)
+
+        if user_ser.is_teamlead is False and user.is_teamlead is True:
+            self.delete_role_teamlead(user)
+
+        if user_ser.is_seo is True and user.is_seo is False:
+            self.set_role_seo(user)
+
+        if user_ser.is_seo is False and user.is_seo is True:
+            self.delete_role_seo(user)
+
+        if user_ser.is_content_teamlead is True and user.is_content_teamlead is False:
+            self.set_role_content_teamlead(user)
+
+        if user_ser.is_content_teamlead is False and user.is_content_teamlead is True:
+            self.delete_role_content_teamlead(user)
+
+        if user_ser.is_content_author is True and user.is_content_author is False:
+            self.set_role_content_author(user)
+
+        if user_ser.is_content_author is False and user.is_content_author is True:
+            self.delete_role_content_author(user)

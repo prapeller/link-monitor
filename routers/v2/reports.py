@@ -10,16 +10,21 @@ from core.dependencies import (get_session_dependency,
                                period_params_dependency,
                                link_params_dependency)
 from core.enums import LinkOrderByEnum, OrderEnum
-from core.exceptions import UnauthorizedException
-from core.shared import filter_query_by_period_params_link, filter_query_by_model_params_link
-from database.crud import get_query_all_active, get
+from core.shared import (
+    filter_query_by_period_params_link,
+    filter_query_by_model_params_link,
+    auth_head, auth_head_or_teamlead,
+)
+from database.crud import get, get_query_teamleads_linkbuilders_active, get_query_all_active
 from database.models.link import LinkModel
 from database.models.link_url_domain import LinkUrlDomainModel
 from database.models.user import UserModel
 from database.schemas.user import DashboardUserDataResponseModel
 from services.file_handler.file_handler import iterfile
-from services.reporter.based_link.generator import generate_filtered_links_report
-from services.reporter.based_link.generator import get_dashboard_data
+from services.reporter.based_link.generator import (
+    generate_filtered_links_report,
+    get_dashboard_data,
+)
 from services.reporter.based_link_url_domain.generator import (
     generate_report_v2 as generate_link_url_domain_report,
     generate_report_ui_v2 as generate_link_url_domain_report_ui
@@ -30,44 +35,47 @@ router = fa.APIRouter()
 
 @router.get("/dashboard/head",
             response_model=list[DashboardUserDataResponseModel])
+@auth_head
 async def get_report_dashboard_head(
         db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        period_params=fa.Depends(period_params_dependency)
+        period_params=fa.Depends(period_params_dependency),
 ):
-    """returns dashboard table data on
-    'Dashboard' button for Head"""
-    if not current_user.is_head:
-        raise UnauthorizedException
-
-    users = get_query_all_active(db, UserModel).all()
+    """
+    returns dashboard table data on
+    'Dashboard' button for Head
+    """
+    users = get_query_teamleads_linkbuilders_active(db, UserModel) \
+        .all()
 
     date_from = period_params['date_from']
     date_upto = period_params['date_upto']
-    dashboard_data = get_dashboard_data(db=db, users=users, date_from=date_from, date_upto=date_upto)
+    dashboard_data = get_dashboard_data(db=db, users=users, date_from=date_from,
+                                        date_upto=date_upto)
 
     return dashboard_data
 
 
 @router.get("/dashboard/teamlead",
             response_model=list[DashboardUserDataResponseModel])
+@auth_head_or_teamlead
 async def get_report_dashboard_teamlead(
         db: Session = fa.Depends(get_session_dependency),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
         period_params=fa.Depends(period_params_dependency)
 ):
-    """returns dashboard table data on
-    'Dashboard' button for Teamlead"""
-    if not current_user.is_teamlead:
-        raise UnauthorizedException
-
-    users = get_query_all_active(db, UserModel).filter_by(teamlead_id=current_user.id).all()
+    """
+    returns dashboard table data on
+    'Dashboard' button for Teamlead
+    """
+    users = get_query_all_active(db, UserModel, teamlead_id=current_user.id) \
+        .all()
     users.append(current_user)
-    users = list(set(users))
 
     date_from = period_params['date_from']
     date_upto = period_params['date_upto']
-    dashboard_data = get_dashboard_data(db=db, users=users, date_from=date_from, date_upto=date_upto)
+    dashboard_data = get_dashboard_data(db=db, users=users, date_from=date_from,
+                                        date_upto=date_upto)
 
     return dashboard_data
 
@@ -78,8 +86,10 @@ async def get_report_link_url_domains_id_users_all_ui(
         db: Session = fa.Depends(get_session_dependency),
         year: int | None = datetime.datetime.now().year,
 ):
-    """returns report table data on
-    'Project.id' button for Head/Teamlead"""
+    """
+    returns report table data on
+    'Project.id' button for Head/Teamlead
+    """
     link_url_domain = get(db, LinkUrlDomainModel, id=id)
     if link_url_domain is None:
         raise fa.HTTPException(status_code=404, detail="Project (link_url_domain) not found")
@@ -97,8 +107,10 @@ async def get_report_link_url_domains_id_users_all(
         db: Session = fa.Depends(get_session_dependency),
         year: int | None = datetime.datetime.now().year,
 ):
-    """returns report file.xlsx on
-    'Project.id' button for Head/Teamlead"""
+    """
+    returns report file.xlsx on
+    'Project.id' button for Head/Teamlead
+    """
     to_save_filepath = 'static/report/report.xlsx'
     link_url_domain = get(db, LinkUrlDomainModel, id=id)
     if link_url_domain is None:
@@ -124,10 +136,12 @@ async def get_report_links_filtered(
         period_params: dict = fa.Depends(period_params_dependency),
         links_params: dict = fa.Depends(link_params_dependency),
 ):
-    """returns filtered links file.xlsx on
+    """
+    returns filtered links file.xlsx on
     'Get Filtered Links' button for Head/Teamlead/Linkbuilder/Seo
     Frontend sends links_order_by, links_order, period_params and links_params
-    as lastly user have selected at 'Links' page or default if he hasn't selected anything yet"""
+    as lastly user have selected at 'Links' page or default if he hasn't selected anything yet
+    """
 
     to_save_filepath = f'static/links/links_filtered_for_user_uuid_{current_user.uuid}.xlsx'
 

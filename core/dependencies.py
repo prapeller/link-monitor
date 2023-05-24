@@ -1,4 +1,4 @@
-import datetime
+import datetime as dt
 
 import fastapi as fa
 from fastapi_resource_server import JwtDecodeOptions, OidcResourceServer
@@ -120,10 +120,25 @@ async def pagination_params_dependency(
 
 
 async def period_params_dependency(
-        date_from: datetime.date | None = datetime.date.today(),
-        date_upto: datetime.date | None = datetime.date.today(),
+        date_from: dt.date | None = dt.date.today(),
+        date_upto: dt.date | None = dt.date.today(),
 ):
     return {
         'date_from': date_from,
         'date_upto': date_upto,
+    }
+
+
+async def year_month_period_params_dependency(
+        year_from: int | None = dt.datetime.today().year,
+        month_from: int | None = dt.datetime.today().month,
+
+        year_upto: int | None = dt.datetime.today().year,
+        month_upto: int | None = dt.datetime.today().month,
+):
+    return {
+        'year_from': year_from,
+        'month_from': month_from,
+        'year_upto': year_upto,
+        'month_upto': month_upto,
     }

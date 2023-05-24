@@ -1,7 +1,7 @@
 # 1) Run locally
 - install docker, docker-compose
 - rename .envs/.example to .local
-- insert there your SUPERUSER and KEYCLOAK credentials
+- insert there your SUPERUSER and KEYCLOAK credential
 - > make build
 
 # 2) Documentation

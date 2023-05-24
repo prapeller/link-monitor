@@ -34,4 +34,3 @@ class LinkUrlDomainReadSerializerV2(pd.BaseModel):
 
     class Config:
         orm_mode = True
-

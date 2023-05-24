@@ -28,7 +28,6 @@ from database.models.tag import TagModel
 from database.repository import SqlAlchemyRepository
 from database.schemas.tag import TagCreateSerializer
 
-
 logger = logging.getLogger(name='domain_checker')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s ")
@@ -138,10 +137,11 @@ async def create_from_similar_web_for_pud(pud_id, to_create=('country_tags', 'mo
             pud_country_tags = []
 
             for country in countries_list:
-                for full_name, name in COUNTRIES_DICT.items():
+                for full_name, names in COUNTRIES_DICT.items():
                     if country in full_name:
-                        country_tag_ser = TagCreateSerializer(name=name, full_name=full_name, ref_property='country')
-                        country_tag = repo.get_or_create(TagModel, country_tag_ser)
+                        country_tag_ser = TagCreateSerializer(name=names[0], full_name=full_name,
+                                                              ref_property='country')
+                        is_created, country_tag = repo.get_or_create(TagModel, country_tag_ser)
                         pud_country_tags.append(country_tag)
                         break
 
@@ -214,7 +214,7 @@ async def create_language_tags_for_pud(pud_id):
             language_3 = langs[0]
             language_tag_ser = TagCreateSerializer(name=language_3, full_name=language_full,
                                                    ref_property='language')
-            language_tag = repo.get_or_create(TagModel, language_tag_ser)
+            is_created, language_tag = repo.get_or_create(TagModel, language_tag_ser)
 
             pud.language_tags = language_tag
             session.commit()

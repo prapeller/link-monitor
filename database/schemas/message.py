@@ -7,6 +7,7 @@ class MessageUpdateSerializer(pd.BaseModel):
     header: str | None = None
     text: str | None = None
     is_read: bool | None = None
+    is_notified: bool | None = None
 
     to_user_id: int | None = None
 

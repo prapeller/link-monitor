@@ -13,6 +13,7 @@ from database import Base
 from database.models.link import LinkModel
 from database.models.link_check import LinkCheckModel
 from database.models.page_url_domain import PageUrlDomainModel
+from database.models.user import UserModel
 
 
 def get_link_check_last(link) -> LinkCheckModel:
@@ -249,12 +250,13 @@ TIMEOUT_5 = httpx.Timeout(connect=5, read=5, write=5, pool=None)
 TIMEOUT_30 = httpx.Timeout(connect=30, read=30, write=30, pool=None)
 
 
-def auth_head_only(func):
+def auth_head(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_head' role
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        current_user = kwargs.get('current_user')
+        current_user: UserModel = kwargs.get('current_user')
         if current_user:
-            # if user doesn't have role 'head'
             if not current_user.is_head:
                 raise UnauthorizedException
         return await func(*args, **kwargs)
@@ -262,13 +264,56 @@ def auth_head_only(func):
     return wrapper
 
 
-def auth_teamlead_only(func):
+def auth_head_or_content_head(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_head' or 'is_content_head' role
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        current_user = kwargs.get('current_user')
+        current_user: UserModel = kwargs.get('current_user')
         if current_user:
-            # access denied if user doesn't have roles or have roles others but not 'teamleadRole'
-            if current_user.employeeType is None or 'teamleadRole' not in current_user.employeeType:
+            if not any((current_user.is_head, current_user.is_content_head)):
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def auth_content_teamlead(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_content_teamlead' role
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        current_user: UserModel = kwargs.get('current_user')
+        if current_user:
+            if not current_user.is_content_teamlead:
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def auth_content_author(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_content_author' role
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        current_user: UserModel = kwargs.get('current_user')
+        if current_user:
+            if not current_user.is_content_author:
+                raise UnauthorizedException
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def auth_teamlead(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_teamlead' or 'is_content_teamlead' roles
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        current_user: UserModel = kwargs.get('current_user')
+        if current_user:
+            if not any((current_user.is_teamlead, current_user.is_content_teamlead)):
                 raise UnauthorizedException
         return await func(*args, **kwargs)
 
@@ -276,18 +321,51 @@ def auth_teamlead_only(func):
 
 
 def auth_head_or_teamlead(func):
+    # decorator for route, that denies access if user
+    # doesn't have 'is_teamlead' or 'is_content_teamlead' or 'is_head' roles
     @wraps(func)
     async def wrapper(*args, **kwargs):
-
-        current_user = kwargs.get('current_user')
-
+        current_user: UserModel = kwargs.get('current_user')
         if current_user:
-            current_user_roles = current_user.employeeType
-            # access denied if user doesn't have roles or both roles ('teamleadRole', 'headRole') are absent
-            if current_user_roles is None or (
-                    'teamleadRole' not in current_user_roles and
-                    'headRole' not in current_user_roles):
+            if not any((current_user.is_teamlead, current_user.is_content_teamlead, current_user.is_head)):
                 raise UnauthorizedException
         return await func(*args, **kwargs)
 
     return wrapper
+
+
+def month_gen_func(month_from):
+    curr_month = month_from
+    while True:
+        yield curr_month
+        curr_month = (curr_month % 12) + 1
+
+
+def get_year_month_period(period_year_month_params: dict) -> list[tuple[int, int]]:
+    year_from = period_year_month_params['year_from']
+    month_from = period_year_month_params['month_from']
+
+    year_upto = period_year_month_params['year_upto']
+    month_upto = period_year_month_params['month_upto']
+
+    year_month_period = []
+    months_gen = month_gen_func(month_from)
+
+    for year in range(year_from, year_upto + 1):
+        while True:
+            month = next(months_gen)
+
+            year_month = (year, month)
+            year_month_period.append(year_month)
+
+            if month + 1 == 13:
+                months_gen = month_gen_func(1)
+                break
+
+            if year_month_period[-1] == (year_upto, month_upto):
+                break
+
+        if year_month_period[-1] == (year_upto, month_upto):
+            break
+
+    return year_month_period

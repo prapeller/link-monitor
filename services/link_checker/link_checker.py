@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import ssl
 import subprocess
 
@@ -106,6 +107,7 @@ class LinkChecker:
         self.lcs_list = []
         self.check_with_proxies_link_ids = []
         self.check_with_pw_link_ids = []
+        os.environ["BROWSER_CONTEXT_SHARING_ENABLED"] = "true"
 
     def __repr__(self):
         return f"""<LinkChecker> (id: {id(self)}
@@ -213,8 +215,7 @@ class LinkChecker:
 
     async def get_link_check_ser(self, client: httpx.AsyncClient, link: LinkModel,
                                  mode=None, proxies_dict=None, visit_from=None):
-        logger.debug(
-            f'LinkChecker.get_link_check_ser(link: {link.id}, mode: {mode}, proxies_dict: {proxies_dict}, visit_from: {visit_from}')
+        logger.debug(f'LinkChecker.get_link_check_ser({link.id=:}, {mode=:}, {proxies_dict=:}, {visit_from=:}')
 
         response_code = None
         redirect_codes_list = []
@@ -256,7 +257,9 @@ class LinkChecker:
                         proxy=get_proxy_for_playwright(proxies_dict),
                         headless=True
                     )
-                    page = await browser.new_page(ignore_https_errors=True)
+                    context = await browser.new_context(ignore_https_errors=True)
+                    page = await context.new_page()
+                    await page.set_extra_http_headers({"Cache-Control": "no-cache"})
                     page.on("response", lambda response: set_response_code(response.status))
                     page.on("response", lambda response: append_redirect_codes_list(response.status))
                     logger.debug(
@@ -266,6 +269,7 @@ class LinkChecker:
                     page_content = await page.content()
                     logger.debug(
                         f'playwright closing {link.id=:}, {link.page_url=:}, RAM memory % used: {psutil.virtual_memory()[2]}')
+                    await context.clear_cookies()
                     await browser.close()
 
             # get response_code and page_content with httpx.AsyncClient

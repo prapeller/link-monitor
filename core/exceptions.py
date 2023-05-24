@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from database.models.link import LinkModel
 from database.models.user import UserModel
-from services.notificator.notificator import send_email, send_telegram
+from services.notificator.notificator import Notificator
 
 UnauthorizedException = fa.HTTPException(
     status_code=fa.status.HTTP_401_UNAUTHORIZED,
@@ -99,14 +99,18 @@ class LinkAlreadyExistsFromFileException(fa.HTTPException):
 class WhileUploadingArchiveException(Exception):
     def __init__(self, message, errors: list[str], user: UserModel):
         super().__init__(message)
-        send_email(user, message='errors while uploading link archive: \n\n{0}'.format('\n'.join(errors)))
-        errors_chunk = []
-        while errors:
-            error = errors.pop()
-            errors_chunk.append(error)
-            if len(errors_chunk) == 15 or len(errors) == 0:
-                send_telegram(user, message=str('\n'.join(errors_chunk)))
-                errors_chunk = []
+        with Notificator() as notificator:
+            errors_text = 'errors while uploading link archive: \n\n{0}'.format('\n'.join(errors))
+            notificator.send_email(user, text=errors_text)
+            notificator.send_message(user, text=errors_text)
+
+            errors_chunk = []
+            while errors:
+                error = errors.pop()
+                errors_chunk.append(error)
+                if len(errors_chunk) == 15 or len(errors) == 0:
+                    notificator.send_telegram(user, text=str('\n'.join(errors_chunk)))
+                    errors_chunk = []
 
 
 class CheckWithPlaywrightException(Exception):

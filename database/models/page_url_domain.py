@@ -1,30 +1,17 @@
 from statistics import mean
-from typing import Union
 
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 
-from database import Base
-from database.models.association import IdentifiedCreatedUpdated, PageUrlDomainTagAssociation
+from database import IdentifiedCreatedUpdated, Base
+from database.models.association import PageUrlDomainTagAssociation
 from database.models.link import LinkModel
-from database.models.tag import Tag, TagModel
+from database.models.tag import TagModel
 
 
-class PageUrlDomain(IdentifiedCreatedUpdated):
-    name: str
-
-    links: Union[list['Link'], None] = None
-    tags: Union[list['Tag'], None] = None
-
-
-class PageUrlDomainModel(Base):
+class PageUrlDomainModel(IdentifiedCreatedUpdated, Base):
     __tablename__ = 'page_url_domain'
-
-    id = sa.Column(sa.Integer, primary_key=True)
-    created_at = sa.Column(sa.DateTime, server_default=func.now(), nullable=False)
-    updated_at = sa.Column(sa.DateTime)
 
     name = sa.Column(sa.String(255), index=True)
 
@@ -66,10 +53,6 @@ class PageUrlDomainModel(Base):
             self.link_dr_last = link_last.dr
         if link_last.da is not None:
             self.link_da_last = link_last.da
-
-    # @link_price_avg.expression
-    # def link_price_avg(cls):
-    #     return sa.select(sa.func.avg(LinkModel.price).label('average')).filter(LinkModel.page_url_domain_id == cls.id)
 
     @hybrid_property
     def tags_id(self):
@@ -147,4 +130,4 @@ class PageUrlDomainModel(Base):
             self.tags.append(value)
 
     def __repr__(self):
-        return f"<PageUrlDomainModel> (id={self.id}, name={self.name})"
+        return f"<PageUrlDomainModel> ({self.id=:}, {self.name=:})"

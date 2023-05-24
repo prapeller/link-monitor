@@ -1,11 +1,13 @@
 import fastapi as fa
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from core.dependencies import (get_session_dependency, get_current_user_dependency)
+from core.dependencies import (get_session_dependency, get_current_user_dependency, get_sqlalchemy_repo_dependency)
 from core.exceptions import UnauthorizedException
 from database.crud import create, get, update, remove
 from database.models.message import MessageModel
 from database.models.user import UserModel
+from database.repository import SqlAlchemyRepository
 from database.schemas.message import MessageReadSerializer, MessageCreateSerializer
 
 router = fa.APIRouter()
@@ -16,14 +18,15 @@ router = fa.APIRouter()
             )
 def messages_list_all_to_me(
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        repo: SqlAlchemyRepository = fa.Depends(get_sqlalchemy_repo_dependency),
 ):
     """
     get messages sent to current user
     """
 
-    messages = db.query(MessageModel).filter_by(to_user=current_user).all()
-    return messages
+    return repo.session.query(MessageModel) \
+        .filter_by(to_user_id=current_user.id, is_notified=True) \
+        .order_by(sa.desc(MessageModel.created_at)).all()
 
 
 @router.get("/from-me",
@@ -31,14 +34,15 @@ def messages_list_all_to_me(
             )
 def messages_list_all_from_me(
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        repo: SqlAlchemyRepository = fa.Depends(get_sqlalchemy_repo_dependency),
 ):
     """
     get messages sent from current user
     """
 
-    messages = db.query(MessageModel).filter_by(from_user=current_user).all()
-    return messages
+    return repo.session.query(MessageModel) \
+        .filter_by(from_user_id=current_user.id, is_notified=True) \
+        .order_by(sa.desc(MessageModel.created_at)).all()
 
 
 @router.get("/{message_id}",
@@ -47,15 +51,15 @@ def messages_list_all_from_me(
 def messages_read(
         message_id: int = fa.Path(...),
         current_user: UserModel = fa.Depends(get_current_user_dependency),
-        db: Session = fa.Depends(get_session_dependency),
+        repo: SqlAlchemyRepository = fa.Depends(get_sqlalchemy_repo_dependency),
 ):
     """
     get message by id
     """
-    message = get(db, MessageModel, id=message_id)
-    if message is None:
-        raise fa.HTTPException(status_code=404, detail="Message not found")
-    if not current_user.is_head and message.from_user_id != current_user.id and message.to_user_id != current_user.id:
+    message = repo.get(MessageModel, id=message_id)
+    current_user_is_recepient_or_receiver = message.from_user_id == current_user.id \
+                                            or message.to_user_id == current_user.id
+    if not current_user.is_head or not current_user_is_recepient_or_receiver:
         raise UnauthorizedException
 
     return message

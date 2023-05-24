@@ -18,14 +18,14 @@ from routers.v1 import reports as v1_reports
 from routers.v1 import tags as v1_tags
 from routers.v1 import tasks_celery as v1_tasks_celery
 from routers.v1 import tasks_content as v1_tasks_content
+from routers.v1 import content_data as v1_content_data
 from routers.v1 import users as v1_users
 from routers.v2 import link_url_domains as v2_link_url_domains
 from routers.v2 import reports as v2_reports
 
 init_models()
 
-#  |  |  |
-# \/ \/ \/ the following line will create tables according to database.models inherited from Base
+# the following line will create tables according to database.models inherited from Base
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -37,8 +37,7 @@ app = FastAPI(
 )
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
-#  |  |  |
-# \/ \/ \/ routes that require header 'Authentication': 'Bearer token'
+# routes that require header 'Authentication': 'Bearer token'
 
 # v1 router
 
@@ -66,6 +65,8 @@ v1_auth_router.include_router(v1_messages.router, prefix='/messages',
                               tags=['messages'])
 v1_auth_router.include_router(v1_tags.router, prefix='/tags',
                               tags=['tags'])
+v1_auth_router.include_router(v1_content_data.router, prefix='/content-data',
+                              tags=['content_data'])
 
 # v2 router
 
@@ -76,16 +77,14 @@ v2_auth_router.include_router(v2_link_url_domains.router, prefix='/link_url_doma
 v2_auth_router.include_router(v2_reports.router, prefix='/reports',
                               tags=['reports'])
 
-#  |  |  |
-# \/ \/ \/ public routes without authentication
+# public routes without authentication
 
 v1_public_router = APIRouter()
 
 v1_public_router.include_router(v1_auth.router, prefix='/auth',
                                 tags=['auth'])
 
-#  |  |  |
-# \/ \/ \/ adding routers to app
+# adding routers to app
 
 v1_api_router = APIRouter(default_response_class=JSONResponse)
 v1_api_router.include_router(v1_auth_router)

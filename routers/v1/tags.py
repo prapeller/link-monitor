@@ -39,7 +39,7 @@ async def tags_create(
         tag_ser: TagCreateSerializer,
         repo: SqlAlchemyRepository = fa.Depends(get_sqlalchemy_repo_dependency),
 ):
-    tag = repo.get_or_create(TagModel, tag_ser)
+    is_created, tag = repo.get_or_create(TagModel, tag_ser)
     return tag
 
 

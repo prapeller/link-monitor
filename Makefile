@@ -1,56 +1,68 @@
-checkconfig:
-	docker-compose -f local.yml config
+check-config:
+	docker-compose -f docker-compose-local.yml config
+
+check-logs:
+	docker-compose -f docker-compose-local.yml logs
+
+
 
 build:
-	docker-compose -f local.yml up --build -d --remove-orphans
+	docker-compose -f docker-compose-local.yml up --build -d --remove-orphans
 
-checklogs:
-	docker-compose -f local.yml logs
+build-postgres:
+	docker-compose -f docker-compose-local.yml up --build -d --remove-orphans postgres_report
 
-inspect_postgres:
+build-redis:
+	docker-compose -f docker-compose-local.yml up --build -d --remove-orphans redis_report
+
+build-api:
+	docker-compose -f docker-compose-local.yml up --build -d --remove-orphans api_report
+
+up:
+	docker-compose -f docker-compose-local.yml up -d
+
+restart:
+	docker-compose -f docker-compose-local.yml restart
+
+down:
+	docker-compose -f docker-compose-local.yml down
+
+down-v:
+	docker-compose -f docker-compose-local.yml down -v
+
+
+
+pipinstall:
+	docker-compose -f docker-compose-local.yml run --rm api_report pip install -r requirements.txt
+
+piplist:
+	docker-compose -f docker-compose-local.yml run --rm api_report pip list
+
+exec-postgres:
+	docker-compose -f docker-compose-local.yml exec postgres_report psql --username=report --dbname=report
+
+backup:
+	docker-compose -f docker-compose-local.yml exec postgres_report backup
+
+check-backups:
+	docker-compose -f docker-compose-local.yml exec postgres_report backups
+
+
+
+inspect-postgres-data:
 	docker volume inspect local_postgres_data
 
-inspect_postgres_ip:
-	docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' postgres
+inspect-postgres-ip:
+	docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' postgres_report
 
-inspect_api_ip:
-	docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' api
+inspect-api-ip:
+	docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' api_report
 
-inspect_postgres_backups:
+inspect-postgres-backups:
 	docker volume inspect local_postgres_data_backups
 
 inspect_static:
 	docker volume inspect static_volume
-
-up:
-	docker-compose -f local.yml up -d
-
-restart:
-	docker-compose -f local.yml restart
-
-pipinstalllocal:
-	docker-compose -f local.yml run --rm api pip install -r requirements.txt
-
-piplist:
-	docker-compose -f local.yml run --rm api pip list
-
-backup:
-	docker-compose -f local.yml exec postgres backup
-
-checkbackups:
-	docker-compose -f local.yml exec postgres backups
-
-down:
-	docker-compose -f local.yml down
-
-down-v:
-	docker-compose -f local.yml down -v
-
-report_db:
-	docker-compose -f local.yml exec postgres psql --username=report --dbname=report
-
-generatekey:
-	python -c 'import secrets; print(secrets.token_urlsafe(38))'
 
 test:
 	pytest --tb=short

@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+
+  postgres_report:
+    build:
+      context: .
+      dockerfile: ./docker/postgres/Dockerfile
+    container_name: postgres_report
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+      - local_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.docker-compose-local
+    networks:
+      - report
+    ports:
+      - "5432:5432"
+
+  redis_report:
+    image: redis:7.0-alpine
+    container_name: redis_report
+    networks:
+      - report
+    ports:
+      - "6379:6379"
+
+  celery_worker_report:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    command: /start-celeryworker
+    container_name: celery_worker_report
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+    env_file:
+      - ./.envs/.docker-compose-local
+    depends_on:
+      - redis_report
+      - postgres_report
+    networks:
+      - report
+
+  flower_report:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    command: /start-flower
+    container_name: celery_flower_report
+    volumes:
+      - .:/app
+    env_file:
+      - ./.envs/.docker-compose-local
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis_report
+      - postgres_report
+    networks:
+      - report
+
+#  beat_report:
+#    build:
+#      context: .
+#      dockerfile: ./docker/api/Dockerfile
+#    command: /start-beat
+#    container_name: celery_beat_report
+#    volumes:
+#      - .:/app
+#    env_file:
+#      - ./.envs/.docker-compose-local
+#    depends_on:
+#      - redis_report
+#      - postgres_report
+#    networks:
+#      - report
+
+  api_report:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: /start
+    container_name: api_report
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+    ports:
+      - "5006:5006"
+    env_file:
+      - ./.envs/.docker-compose-local
+    depends_on:
+      - redis_report
+      - postgres_report
+    networks:
+      - report
+
+  nginx_report:
+    restart: always
+    container_name: nginx_report
+    depends_on:
+      - api_report
+    volumes:
+      - static_volume:/app/static
+    build:
+      context: docker/nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    networks:
+      - report
+
+networks:
+  report:
+    driver: bridge
+
+volumes:
+  local_postgres_data: {}
+  local_postgres_data_backups: {}
+  static_volume:

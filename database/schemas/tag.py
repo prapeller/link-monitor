@@ -26,4 +26,3 @@ class TagReadSerializer(TagCreateSerializer):
 
     class Config:
         orm_mode = True
-

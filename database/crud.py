@@ -1,5 +1,7 @@
 from typing import Type
+
 import fastapi as fa
+import sqlalchemy as sa
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -18,6 +20,20 @@ def get(db: Session, Model: Type[Base], **kwargs) -> Base:
 
 def get_query_all_active(db: Session, Model: Type[Base], **kwargs) -> Query:
     return db.query(Model).filter_by(is_active=True, **kwargs)
+
+
+def get_query_teamleads_linkbuilders_active(db: Session, Model: Type[Base], **kwargs) -> Query:
+    """
+    all active users with roles except head/seo/content_teamlead/content_author
+    """
+    return db.query(Model) \
+        .filter(sa.and_(
+        UserModel.is_head == False,
+        UserModel.is_seo == False,
+        UserModel.is_content_teamlead == False,
+        UserModel.is_content_author == False,
+        )) \
+        .filter_by(is_active=True, **kwargs)
 
 
 def get_query_all_inactive(db: Session, Model: Type[Base], **kwargs) -> Query:
@@ -46,7 +62,10 @@ def get_or_create_many(db: Session, Model: Type[Base], serializers: list[BaseMod
     return obj_list
 
 
-def get_or_create_many_links_from_archive(db: Session, link_create_ser_list: list[LinkCreateWithDomainsSerializer]) -> list[Base]:
+def get_or_create_many_links_from_archive(
+        db: Session,
+        link_create_ser_list: list[LinkCreateWithDomainsSerializer],
+) -> list[Base]:
     links = []
     for link_ser in link_create_ser_list:
         link_ser_data = jsonable_encoder(link_ser)
@@ -128,13 +147,18 @@ def update(db: Session, model_obj: Base, serializer: BaseModel | dict) -> Base:
 def remove(db: Session, Model: Type[Base], id: int) -> None:
     model_obj = db.query(Model).get(id)
     if model_obj is None:
-        raise fa.HTTPException(status_code=404, detail=f"Trying to remove {Model} with id {id}, which is not found.")
+        raise fa.HTTPException(status_code=404,
+                               detail=f"Trying to remove {Model} with id {id}, which is not found.")
     db.delete(model_obj)
     db.commit()
 
 
-def create_user_from_keycloak(db, kc_admin, user_email, user_first_name, user_last_name) -> UserModel:
-    user_ser = UserCreateSerializer(email=user_email, first_name=user_first_name, last_name=user_last_name,
+def create_user_from_keycloak(
+        db, kc_admin, user_email, user_first_name, user_last_name
+) -> UserModel:
+    user_ser = UserCreateSerializer(email=user_email,
+                                    first_name=user_first_name,
+                                    last_name=user_last_name,
                                     is_active=False)
     kc_user_uuid = kc_admin.get_user_uuid_by_email(user_ser.email)
     if not kc_user_uuid:

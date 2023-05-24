@@ -47,4 +47,5 @@ class PUDomainReadLastLinkManyTotalCountResponseModel(pd.BaseModel):
 
 
 from database.schemas.tag import TagReadSerializer
+
 PUDomainReadLastLinkSerializer.update_forward_refs()

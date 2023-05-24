@@ -1,6 +1,6 @@
 from core.dependencies import pudomain_params_dependency
 from core.shared import filter_query_by_model_params_pudomain
-from services.domain_checker import recreate_domains
+from services.domain_checker.domain_checker import recreate_domains
 from database.models.link import LinkModel
 from database.models.page_url_domain import PageUrlDomainModel
 from database.models.tag import TagModel

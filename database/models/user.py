@@ -1,94 +1,13 @@
-from typing import Union
-
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref
-from sqlalchemy.sql import func
 
-from database import Base
-from database.models.association import IdentifiedCreatedUpdated
-
-
-class User(IdentifiedCreatedUpdated):
-    uuid: str | None = None
-    email: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
-    is_teamlead: bool | None = None
-    is_head: bool | None = None
-    is_accepting_emails: bool | None = None
-    is_accepting_telegram: bool | None = None
-    telegram_id: str | None = None
-    is_active: bool | None = None
-    is_seo: bool | None = None
-
-    teamlead_id: int | None = None
-    teamlead: Union['User', None] = None
-
-    linkbuilders: Union[list['User'], None] = None
-    links: Union[list['Link'], None] = None
-    sent_messages: Union[list['Message'], None] = None
-    received_messages: Union[list['Message'], None] = None
-    seo_link_url_domains: Union[list['LinkUrlDomain'], None] = None
-
-    def __init__(self,
-                 email,
-                 first_name,
-                 last_name,
-                 is_teamlead, is_head,
-                 is_accepting_emails,
-                 is_accepting_telegram,
-                 telegram_id,
-                 is_active,
-                 is_seo,
-                 teamlead_id,
-
-                 id=None,
-                 uuid=None,
-                 teamlead=None,
-                 linkbuilders=None,
-                 links=None,
-                 sent_messages=None,
-                 received_messages=None,
-                 seo_link_url_domains=None
-                 ):
-        self.id = id
-        self.uuid = uuid
-
-        self.email = email
-        self.first_name = first_name
-        self.last_name = last_name
-        self.is_teamlead = is_teamlead
-        self.is_head = is_head
-        self.is_accepting_emails = is_accepting_emails
-        self.is_accepting_telegram = is_accepting_telegram
-        self.telegram_id = telegram_id
-        self.is_active = is_active
-        self.is_seo = is_seo
-
-        self.teamlead_id = teamlead_id
-        self.teamlead = teamlead
-        self.linkbuilders = linkbuilders
-        self.links = links
-        self.sent_messages = sent_messages
-        self.received_messages = received_messages
-        self.seo_link_url_domains = seo_link_url_domains
-
-    def __eq__(self, other):
-        if not isinstance(other, User):
-            return False
-        return self.email == other.email
-
-    def __hash__(self):
-        return hash(self.email)
+from database import IdentifiedCreatedUpdated, Base
+from database.models.message import MessageModel
 
 
-class UserModel(Base):
+class UserModel(IdentifiedCreatedUpdated, Base):
     __tablename__ = 'user'
-
-    id = sa.Column(sa.Integer, primary_key=True, index=True)
-    created_at = sa.Column(sa.DateTime, server_default=func.now(), nullable=False)
-    updated_at = sa.Column(sa.DateTime)
 
     uuid = sa.Column(sa.String(50), unique=True, index=True)
     email = sa.Column(sa.String(255), unique=True, index=True)
@@ -97,52 +16,59 @@ class UserModel(Base):
     is_head = sa.Column(sa.Boolean, default=False)
     is_teamlead = sa.Column(sa.Boolean, default=False)
     is_seo = sa.Column(sa.Boolean, default=False)
+    is_content_head = sa.Column(sa.Boolean, default=False)
     is_content_teamlead = sa.Column(sa.Boolean, default=False)
     is_content_author = sa.Column(sa.Boolean, default=False)
     is_accepting_emails = sa.Column(sa.Boolean, default=False)
     is_accepting_telegram = sa.Column(sa.Boolean, default=False)
     telegram_id = sa.Column(sa.String(255))
     is_active = sa.Column(sa.Boolean, default=True)
+    timezone = sa.Column(sa.String(10))
 
     teamlead_id = sa.Column(sa.Integer, sa.ForeignKey('user.id'))
-    teamlead = relationship("UserModel",
-                            primaryjoin='UserModel.id==UserModel.teamlead_id',
-                            remote_side='UserModel.id',
-                            backref=backref('linkbuilders'),
-                            # back_populates='linkbuilders',
-                            )
-    # linkbuilders = relationship("UserModel", back_populates='teamlead',
-                                # primaryjoin='UserModel.id.in_(UserModel.linkbuilders_id)'
-                                # )
+    teamlead = relationship(
+        "UserModel",
+        primaryjoin='UserModel.id==UserModel.teamlead_id',
+        remote_side='UserModel.id',
+        backref=backref('linkbuilders'), )
 
     content_teamlead_id = sa.Column(sa.Integer, sa.ForeignKey('user.id'))
-    content_teamlead = relationship("UserModel",
-                                    primaryjoin='UserModel.id==UserModel.content_teamlead_id',
-                                    remote_side='UserModel.id',
-                                    backref=backref('content_authors'),
-                                    # back_populates='content_authors',
-                                    )
-    # content_authors = relationship("UserModel", back_populates='content_teamlead',
-                                   # primaryjoin='UserModel.id.in_(UserModel.content_authors_id)'
-                                   # )
+    content_teamlead = relationship(
+        "UserModel",
+        primaryjoin='UserModel.id==UserModel.content_teamlead_id',
+        remote_side='UserModel.id',
+        backref=backref('content_authors'), )
 
-    links = relationship("LinkModel", back_populates='user')
-    sent_messages = relationship("MessageModel", back_populates='from_user',
-                                 primaryjoin='MessageModel.from_user_id==UserModel.id')
-    received_messages = relationship("MessageModel", back_populates='to_user',
-                                     primaryjoin='MessageModel.to_user_id==UserModel.id')
+    links = relationship(
+        "LinkModel", back_populates='user')
 
-    seo_link_url_domains = relationship("LinkUrlDomainModel", secondary='user_link_url_domain',
-                                        back_populates='seo_users')
+    sent_messages = relationship(
+        "MessageModel", back_populates='from_user',
+        primaryjoin='MessageModel.from_user_id==UserModel.id')
 
-    content_linkbuilder_tasks = relationship("TaskContentModel", back_populates='content_linkbuilder',
-                                             primaryjoin='TaskContentModel.content_linkbuilder_id==UserModel.id')
+    accepted_messages: list[MessageModel] = relationship(
+        "MessageModel", back_populates='to_user',
+        primaryjoin='MessageModel.to_user_id==UserModel.id')
 
-    content_teamlead_tasks = relationship("TaskContentModel", back_populates='content_teamlead',
-                                          primaryjoin='TaskContentModel.content_teamlead_id==UserModel.id')
+    seo_link_url_domains = relationship(
+        "LinkUrlDomainModel", secondary='user_link_url_domain',
+        back_populates='seo_users')
 
-    content_author_tasks = relationship("TaskContentModel", back_populates='content_author',
-                                        primaryjoin='TaskContentModel.content_author_id==UserModel.id')
+    content_linkbuilder_tasks = relationship(
+        "TaskContentModel",
+        back_populates='content_linkbuilder',
+        primaryjoin='TaskContentModel.content_linkbuilder_id==UserModel.id')
+
+    content_teamlead_tasks = relationship(
+        "TaskContentModel", back_populates='content_teamlead',
+        primaryjoin='TaskContentModel.content_teamlead_id==UserModel.id')
+
+    content_author_tasks = relationship(
+        "TaskContentModel", back_populates='content_author',
+        primaryjoin='TaskContentModel.content_author_id==UserModel.id')
+
+    content_dashboard_data = relationship("ContentDataModel", back_populates='content_author',
+                                          primaryjoin='UserModel.id==ContentDataModel.content_author_id')
 
     @hybrid_property
     def seo_link_url_domains_id(self):
@@ -155,6 +81,15 @@ class UserModel(Base):
     @linkbuilders_id.expression
     def linkbuilders_id(cls):
         return sa.select(UserModel.id).where(UserModel.teamlead_id == cls.id)
+
+    @hybrid_property
+    def pending_messages(self):
+        return [message for message in self.accepted_messages if not message.is_notified]
+
+    @pending_messages.expression
+    def pending_messages(cls):
+        return sa.select(MessageModel).where(
+            sa.and_(MessageModel.to_user == cls.id, MessageModel.is_notified == False))
 
     @hybrid_property
     def content_authors_id(self):
@@ -173,7 +108,7 @@ class UserModel(Base):
         return f'{self.teamlead.first_name} {self.teamlead.last_name}' if self.teamlead else ''
 
     def __repr__(self):
-        return f'<UserModel> (id={self.id}, email={self.email})'
+        return f'<UserModel> ({self.id=:}, {self.email=:})'
 
     def __str__(self):
         return f'{self.first_name} {self.last_name}'

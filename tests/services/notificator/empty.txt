@@ -1,0 +1,2 @@
+this file is for right testing only
+otherwise 'file not found' exception, bcz folders containing this file needed

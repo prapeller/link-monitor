@@ -22,13 +22,12 @@ def test_can_create_tags(repo_in_memory):
     assert tags == [tag_country_gb, tag_country_czh, tag_language_eng]
 
 
-def test_tag_name_not_longer_then_3_symbols(repo_in_memory):
-    """test tags names have 4 symbols max otherwise validation error occures"""
+def test_tag_name_no_longer_then_3_symbols(repo_in_memory):
+    """test tags names have maximum 3 symbols otherwise validation error being raised"""
     repo = repo_in_memory
 
     with pytest.raises(ValidationError, match='Tag length should not be longer than 3 characters.') as exc_info:
         repo.create(TagModel, TagCreateSerializer(name='china', ref_property='country'))
-        raise ValidationError
 
 
 def test_tag_name_capitalize(repo_in_memory):

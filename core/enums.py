@@ -75,8 +75,44 @@ class TaskContentStatusEnum(str, Enum):
     sent_to_author = 'sent to author'
     text_written = 'text written'
     in_edit = 'in edit'
-    confirmed = 'confirmed'
+    sent_to_webmaster = 'sent to webmaster'
     closed = 'closed'
 
     def __str__(self):
         return self.value
+
+
+class EnvEnum(str, Enum):
+    local = 'local'
+    docker_compose_local = 'docker-compose-local'
+    prod = 'prod'
+
+
+class UTCTimeZonesEnum(str, Enum):
+    utc_p14 = "UTC+14"
+    utc_p13 = "UTC+13"
+    utc_p12 = "UTC+12"
+    utc_p11 = "UTC+11"
+    utc_p10 = "UTC+10"
+    utc_p09 = "UTC+9"
+    utc_p08 = "UTC+8"
+    utc_p07 = "UTC+7"
+    utc_p06 = "UTC+6"
+    utc_p05 = "UTC+5"
+    utc_p04 = "UTC+4"
+    utc_p03 = "UTC+3"
+    utc_p02 = "UTC+2"
+    utc_p01 = "UTC+1"
+    utc_p00 = "UTC+0"
+    utc_m01 = "UTC−1"
+    utc_m02 = "UTC−2"
+    utc_m03 = "UTC−3"
+    utc_m04 = "UTC−4"
+    utc_m05 = "UTC−5"
+    utc_m06 = "UTC−6"
+    utc_m07 = "UTC−7"
+    utc_m08 = "UTC−8"
+    utc_m09 = "UTC−9"
+    utc_m10 = "UTC−10"
+    utc_m11 = "UTC−11"
+    utc_m12 = "UTC−12"

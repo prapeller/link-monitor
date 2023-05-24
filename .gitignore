@@ -134,6 +134,7 @@ dmypy.json
 /static/report/report.xlsx
 /.envs/.prod*
 /.envs/.local*
+/.envs/.docker-compose-local
 
 
 config.ini

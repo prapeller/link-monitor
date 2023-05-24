@@ -74,6 +74,9 @@ def check_every_day():
         .all()
     links = links_httpx_mode + links_playwright_mode
     if links:
+        logger.debug(f'check_every_day task: START CHECKING LINKS_QTY:\n'
+                     f'HTTP_MODE: {len(links_httpx_mode)}\n'
+                     f'PLAYWRIGHT_MODE: {len(links_playwright_mode)}\n')
         for link_chunk in chunks_generator(links, settings.LINK_CHECKER_CHUNK_SIZE):
             logger.debug(f'check_every_day task: LINK_CHECKER_CHUNK_SIZE: {settings.LINK_CHECKER_CHUNK_SIZE}')
             linkchecker = LinkChecker(session)
